@@ -118,6 +118,21 @@ class BenefitRecord(Base):
     active = Column(Boolean, nullable=False, default=True)
 
 
+class BenefitCondition(Base):
+    """Structured rules used to filter benefits before RAG retrieval."""
+
+    __tablename__ = "benefit_conditions"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    benefit_id = Column(Integer, ForeignKey("benefits.id", ondelete="CASCADE"), nullable=False, index=True)
+    label = Column(String(500), nullable=False)
+    field_name = Column(String(100), nullable=True)
+    operator = Column(String(30), nullable=False)
+    expected_value = Column(JSONB, nullable=True)
+    required = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+
+
 class BenefitDocument(Base):
     __tablename__ = "benefit_documents"
 
@@ -132,8 +147,9 @@ class BenefitDocument(Base):
 
 class CatalogueItem:
     """Lightweight read model used by rag.py; keeps ORM details out of routes."""
-    def __init__(self, record, documents):
+    def __init__(self, record, conditions, documents):
         self.name, self.docs, self.contact, self.link = record.name, record.docs, record.contact, record.link
+        self.conditions = conditions
         self.documents = documents
 
 
@@ -172,6 +188,16 @@ async def seed_rag_catalogue() -> None:
             )
             session.add(record)
             await session.flush()
+            for order, (label, field_name, operator, expected, required) in enumerate(item["conditions"]):
+                session.add(BenefitCondition(
+                    benefit_id=record.id,
+                    label=label,
+                    field_name=field_name,
+                    operator=operator,
+                    expected_value=expected,
+                    required=required,
+                    sort_order=order,
+                ))
             session.add(BenefitDocument(
                 benefit_id=record.id, title=f"ข้อมูล {record.name}",
                 content=item["document"], source_url=item["link"],
@@ -188,12 +214,23 @@ async def load_rag_catalogue() -> list[CatalogueItem]:
         if not records:
             return []
         ids = [record.id for record in records]
+        conditions = (await session.execute(
+            select(BenefitCondition)
+            .where(BenefitCondition.benefit_id.in_(ids))
+            .order_by(BenefitCondition.sort_order)
+        )).scalars().all()
         documents = (await session.execute(
             select(BenefitDocument).where(BenefitDocument.benefit_id.in_(ids), BenefitDocument.active.is_(True))
         )).scalars().all()
+    by_benefit_conditions = {record.id: [] for record in records}
     by_benefit_documents = {record.id: [] for record in records}
+    for condition in conditions:
+        by_benefit_conditions[condition.benefit_id].append(condition)
     for document in documents: by_benefit_documents[document.benefit_id].append(document)
-    return [CatalogueItem(record, by_benefit_documents[record.id]) for record in records]
+    return [
+        CatalogueItem(record, by_benefit_conditions[record.id], by_benefit_documents[record.id])
+        for record in records
+    ]
 
 
 async def save_document_embedding(document_id: int, embedding: list[float]) -> None:
@@ -224,7 +261,7 @@ async def log_inquiry(
         )
         session.add(row)
         await session.commit()
-        logger.info(f"Inquiry logged — {len(benefits_data)} RAG candidates")
+        logger.info(f"Inquiry logged — {len(benefits_data)} matched benefits")
 
 
 async def log_ai_response(

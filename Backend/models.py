@@ -43,6 +43,8 @@ class UserProfile:
 @dataclass
 class Benefit:
     name: str
+    matched_conditions: list[str]
+    missing_conditions: list[str]
     docs: list[str]
     contact: list[str]
     link: str = ""

@@ -14,14 +14,19 @@ Backend สำหรับระบบแนะนำสิทธิประโ
   → LLM เลือกสิทธิที่อาจเกี่ยวข้องและอธิบายผล
 ```
 ![1.home](/assets/0.png)<br>
+*รูปที่ 1: หน้าแรกของระบบ (Home)*<br>
 
 ![2.input](/assets/1.png)<br>
+*รูปที่ 2: ฟอร์มกรอกข้อมูลการใช้งาน (Input)*<br>
 
 ![3.select input](/assets/2.png)<br>
+*รูปที่ 3: หน้าจอเลือกตัวเลือกข้อมูล (Select Input)*<br>
 
 ![4.RAG+AI Process](/assets/3.png)<br>
+*รูปที่ 4: RAG Process รับ Input และ อ่านเอกสารจาก db เพื่อหาสิทธิ*<br>
 
 ![5.result](/assets/4.png)<br>
+*รูปที่ 5: ได้ result จากการที่ RAG และให้llmขยาย*<br>
 
 
 - `text-embedding-3-small` แปลงข้อความเป็น vector เพื่อค้นเอกสารที่มีความหมายใกล้เคียง
