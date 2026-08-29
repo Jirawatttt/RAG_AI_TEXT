@@ -13,15 +13,15 @@ Backend สำหรับระบบแนะนำสิทธิประโ
   → ส่งข้อมูลผู้ใช้ + หลักฐาน RAG ให้ LLM
   → LLM เลือกสิทธิที่อาจเกี่ยวข้องและอธิบายผล
 ```
-[1.home](/assets/0.png)<br>
+![1.home](/assets/0.png)<br>
 
-[2.input](/assets/1.png)<br>
+![2.input](/assets/1.png)<br>
 
-[3.select input](/assets/2.png)<br>
+![3.select input](/assets/2.png)<br>
 
-[4.RAG+AI Process](/assets/3.png)<br>
+![4.RAG+AI Process](/assets/3.png)<br>
 
-[5.result](/assets/4.png)<br>
+![5.result](/assets/4.png)<br>
 
 
 - `text-embedding-3-small` แปลงข้อความเป็น vector เพื่อค้นเอกสารที่มีความหมายใกล้เคียง
