@@ -82,6 +82,8 @@ async def retrieve_candidates(profile: UserProfile) -> list[Benefit]:
             contact=item.contact,
             link=item.link,
             detail="\n".join(document.content for document in documents),
+            matched_conditions=[],
+            missing_conditions=[],
         )
         for _, item, documents in ranked
     ]
