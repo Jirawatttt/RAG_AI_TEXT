@@ -1,0 +1,164 @@
+/* =============================================================
+   styles.css  —  Shared styles for all pages
+   ============================================================= */
+
+/* ── Variables ─────────────────────────────────────────────── */
+:root {
+  --navy:       #1B3A6B;
+  --navy-dark:  #122952;
+  --navy-light: #2350A0;
+  --gold:       #C8A84B;
+  --gold-light: #F0D98B;
+  --surface:    #F4F6FA;
+  --card-bg:    #FFFFFF;
+  --border:     #D0D8E8;
+  --text-main:  #1A2340;
+  --text-sub:   #4A5568;
+  --text-muted: #8796AB;
+}
+
+/* ── Reset & Base ───────────────────────────────────────────── */
+* { box-sizing: border-box; }
+
+body {
+  font-family: 'Sarabun', sans-serif;
+  background: var(--surface);
+  min-height: 100vh;
+  color: var(--text-main);
+  font-size: 16px;
+  margin: 0;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.app-header {
+  background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 60%, var(--navy-light) 100%);
+  padding: 0 28px;
+  height: 68px;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: 0 2px 12px rgba(27,58,107,0.25);
+}
+
+/* gold accent line at top of header */
+.app-header::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--gold), var(--gold-light), var(--gold));
+}
+
+.app-header h1 {
+  flex: 1;
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+  color: #fff;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.header-spacer { width: 44px; }
+
+/* ── Logo / Back button ─────────────────────────────────────── */
+.logo-circle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.12);
+  border: 1.5px solid rgba(200,168,75,0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gold-light);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+  letter-spacing: 0.03em;
+  text-decoration: none;
+}
+.logo-circle:hover {
+  background: rgba(255,255,255,0.2);
+  box-shadow: 0 0 0 2px rgba(200,168,75,0.4);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn-action {
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-family: 'Sarabun', sans-serif;
+  font-size: 0.97rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-action.primary {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+  color: #fff;
+  box-shadow: 0 3px 10px rgba(27,58,107,0.25);
+}
+.btn-action.primary:hover {
+  background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 100%);
+  box-shadow: 0 4px 14px rgba(27,58,107,0.35);
+  transform: translateY(-1px);
+}
+.btn-action.secondary {
+  background: #fff;
+  color: var(--navy);
+  border: 1.5px solid var(--border);
+}
+.btn-action.secondary:hover {
+  background: var(--surface);
+  border-color: var(--navy-light);
+}
+
+/* ── Section title (used on input & result) ─────────────────── */
+.section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--navy);
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.section-title::before {
+  content: '';
+  display: inline-block;
+  width: 4px;
+  height: 16px;
+  background: var(--gold);
+  border-radius: 2px;
+}
+
+/* ── Footer actions bar ─────────────────────────────────────── */
+.footer-actions {
+  border-top: 1px solid var(--border);
+  padding: 18px 32px;
+  display: flex;
+  gap: 12px;
+  background: #fff;
+  box-shadow: 0 -2px 8px rgba(27,58,107,0.06);
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 576px) {
+  .app-header h1  { font-size: 0.95rem; }
+  .footer-actions { padding: 14px 16px; }
+}

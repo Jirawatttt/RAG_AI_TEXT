@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Rights Viewer</title>
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .content-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 48px 24px 36px;
+      text-align: center;
+      min-height: calc(100vh - 68px);
+    }
+
+    .fade-in {
+      opacity: 0;
+      transform: translateY(16px);
+      animation: fadeUp 0.6s ease forwards;
+    }
+    .fade-in:nth-child(1) { animation-delay: 0.05s; }
+    .fade-in:nth-child(2) { animation-delay: 0.15s; }
+    .fade-in:nth-child(3) { animation-delay: 0.25s; }
+    .fade-in:nth-child(4) { animation-delay: 0.35s; }
+
+    @keyframes fadeUp {
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .hero-logo {
+      width: 180px;
+      margin: 0 auto 8px;
+      display: block;
+      filter: drop-shadow(0 4px 12px rgba(27,58,107,0.15));
+    }
+
+    .section-divider {
+      width: 40px; height: 3px;
+      background: linear-gradient(90deg, var(--gold), var(--gold-light));
+      border-radius: 2px;
+      margin: 16px auto 24px;
+    }
+
+    .rights-label {
+      font-size: 0.78rem; font-weight: 700;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--text-muted); margin-bottom: 16px;
+    }
+
+    .rights-card {
+      background: var(--card-bg); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px 28px; margin-bottom: 20px;
+      box-shadow: 0 2px 8px rgba(27,58,107,0.07);
+      text-align: left; max-width: 400px; width: 100%;
+    }
+
+    .rights-list { list-style: none; padding: 0; margin: 0; }
+    .rights-list li {
+      padding: 9px 0; font-size: 0.95rem; color: var(--text-sub);
+      display: flex; align-items: center; gap: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .rights-list li:last-child { border-bottom: none; }
+    .rights-list li .num {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: var(--navy); color: #fff;
+      font-size: 0.78rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+
+    /* ── Feature bar ── */
+    .feature-bar {
+      display: flex; gap: 12px;
+      justify-content: center; flex-wrap: wrap;
+      margin-bottom: 24px; max-width: 440px; width: 100%;
+    }
+    .feature-item {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--navy);
+      border-radius: 10px;
+      padding: 16px 12px 14px;
+      flex: 1; min-width: 95px;
+      box-shadow: 0 2px 6px rgba(27,58,107,0.06);
+      text-align: center;
+    }
+    .feature-icon {
+      width: 32px; height: 32px;
+      margin: 0 auto 8px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .feature-icon svg { width: 24px; height: 24px; stroke: var(--navy); }
+    .feature-value {
+      font-size: 0.92rem; font-weight: 700;
+      color: var(--navy); line-height: 1.3;
+    }
+    .feature-label {
+      font-size: 0.7rem; color: var(--text-muted);
+      margin-top: 3px; line-height: 1.4;
+    }
+
+    .tagline {
+      font-size: 0.97rem; color: var(--text-sub); margin-bottom: 20px;
+    }
+
+    .footer-note {
+      font-size: 0.8rem; color: var(--text-muted);
+      padding: 14px 24px; border-top: 1px solid var(--border);
+      text-align: center; background: #fff;
+    }
+
+    .header-logo {
+      width: 36px; height: 36px;
+      object-fit: contain; filter: brightness(0) invert(1);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-header">
+    <img src="logo.png" alt="Smart Rights Viewer" class="header-logo" />
+    <h1>ระบบแสดงสิทธิประโยชน์ภาครัฐเบื้องต้น</h1>
+    <div class="header-spacer"></div>
+  </div>
+
+  <div class="content-area">
+
+    <!-- 1: Logo -->
+    <div class="fade-in">
+      <img src="logo.png" alt="Smart Rights Viewer" class="hero-logo" />
+      <div class="section-divider"></div>
+    </div>
+
+    <!-- 2: Rights list -->
+    <div class="fade-in">
+      <p class="rights-label">สิทธิประโยชน์ที่มีในระบบ</p>
+      <div class="rights-card">
+        <ul class="rights-list">
+          <li><span class="num">1</span> เบี้ยยังชีพผู้สูงอายุ</li>
+          <li><span class="num">2</span> เบี้ยความพิการ</li>
+          <li><span class="num">3</span> สวัสดิการแห่งรัฐ (บัตรคนจน)</li>
+          <li><span class="num">4</span> ประกันสังคม ม.33 ม.39 ม.40</li>
+          <li><span class="num">5</span> เงินอุดหนุนเด็กแรกเกิด</li>
+          <li><span class="num">6</span> สิทธิหลักประกันสุขภาพถ้วนหน้า</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 3: Feature highlights -->
+    <div class="fade-in feature-bar">
+
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3L4 7v5c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V7L12 3z"/>
+            <path d="M9 12l2 2 4-4"/>
+          </svg>
+        </div>
+        <div class="feature-value">6 สิทธิ</div>
+        <div class="feature-label">ครอบคลุมในระบบ</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="9"/>
+            <path d="M12 7v5l3 3"/>
+          </svg>
+
+        </div>
+        <div class="feature-value">มีผู้ช่วย</div>
+        <div class="feature-label">อธิบายภาษาไทยเข้าใจง่าย</div>
+      </div>
+
+      <div class="feature-item">
+        <div class="feature-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="5" y="11" width="14" height="10" rx="2"/>
+            <path d="M8 11V7a4 4 0 018 0v4"/>
+            <circle cx="12" cy="16" r="1" fill="var(--navy)" stroke="none"/>
+          </svg>
+        </div>
+        <div class="feature-value">ปลอดภัย</div>
+        <div class="feature-label">ไม่บันทึกข้อมูลส่วนตัว</div>
+      </div>
+
+    </div>
+
+    <!-- 4: CTA -->
+    <div class="fade-in">
+      <p class="tagline">ตรวจสอบสิทธิของคุณได้ในไม่กี่ขั้นตอน</p>
+      <a class="btn-action primary" href="input.html">เริ่มต้นใช้งาน &nbsp;</a>
+    </div>
+
+  </div>
+
+  <div class="footer-note">* หมายเหตุ: เป็นการประเมินเบื้องต้นเท่านั้น ไม่ใช่การรับรองสิทธิอย่างเป็นทางการ</div>
+
+</body>
+</html>

@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Smart Rights Viewer</title>
+  <link rel="icon" type="image/png" href="logo.png" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .content-area {
+      flex: 1;
+      padding: 28px 32px 36px;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+    }
+
+    /* ── Progress Steps ─────────────────────────────────────── */
+    .progress-steps {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 28px;
+    }
+    .step {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      position: relative;
+    }
+    .step-circle {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.85rem;
+      font-weight: 700;
+      border: 2px solid var(--border);
+      background: #fff;
+      color: var(--text-muted);
+      transition: all 0.3s;
+    }
+    .step.active .step-circle {
+      background: var(--navy);
+      border-color: var(--navy);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(27,58,107,0.3);
+    }
+    .step.done .step-circle {
+      background: #1D9E75;
+      border-color: #1D9E75;
+      color: #fff;
+    }
+    .step-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .step.active .step-label { color: var(--navy); font-weight: 700; }
+    .step.done  .step-label  { color: #1D9E75; }
+
+    .step-line {
+      flex: 1;
+      height: 2px;
+      background: var(--border);
+      margin: 0 8px;
+      margin-bottom: 22px;
+      max-width: 80px;
+    }
+
+    /* ── Form ───────────────────────────────────────────────── */
+    .form-label-th {
+      font-size: 0.85rem;
+      color: var(--text-sub);
+      margin-bottom: 7px;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .form-control,
+    .form-select {
+      border-radius: 8px;
+      border: 1.5px solid var(--border);
+      background: #fff;
+      color: var(--text-main);
+      font-family: 'Sarabun', sans-serif;
+      font-size: 0.95rem;
+      padding: 10px 14px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      width: 100%;
+    }
+    .form-control:focus,
+    .form-select:focus {
+      background: #fff;
+      border-color: var(--navy-light);
+      box-shadow: 0 0 0 3px rgba(35,80,160,0.12);
+      outline: none;
+    }
+    .form-control::placeholder { color: #bbb; }
+
+    .form-control.filled,
+    .form-select.filled {
+      border-color: #1D9E75;
+      background: #F6FDF9;
+    }
+
+    .form-control.is-invalid,
+    .form-select.is-invalid {
+      border-color: #dc3545;
+      background: #FFF5F5;
+    }
+    .error-msg {
+      font-size: 0.8rem;
+      color: #dc3545;
+      margin-top: 4px;
+      display: none;
+    }
+    .error-msg.show { display: block; }
+
+    /* ── Tooltip ── */
+    .tooltip-btn {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--border);
+      color: var(--text-muted);
+      font-size: 0.7rem; font-weight: 700;
+      border: none; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: background 0.2s; flex-shrink: 0;
+    }
+    .tooltip-btn:hover { background: var(--navy-light); color: #fff; }
+
+    .tooltip-box {
+      display: none;
+      background: var(--navy-dark);
+      color: #fff;
+      font-size: 0.8rem; line-height: 1.6;
+      border-radius: 8px; padding: 10px 14px;
+      margin-top: 6px; position: relative;
+    }
+    .tooltip-box::before {
+      content: '';
+      position: absolute;
+      top: -6px; left: 16px;
+      border-left: 6px solid transparent;
+      border-right: 6px solid transparent;
+      border-bottom: 6px solid var(--navy-dark);
+    }
+    .tooltip-box.show { display: block; }
+
+    /* header logo */
+    .header-logo {
+      width: 36px; height: 36px;
+      object-fit: contain;
+      filter: brightness(0) invert(1);
+    }
+
+    /* ── Dashboard ───────────────────────────────────────────── */
+    .dashboard-section {
+      margin-top: 36px;
+      padding-top: 28px;
+      border-top: 2px solid var(--border);
+    }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 16px;
+    }
+    .dash-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 2px 8px rgba(27,58,107,0.07);
+    }
+    .dash-card-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--navy);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dash-card-title::before {
+      content: '';
+      width: 3px; height: 14px;
+      background: var(--gold);
+      border-radius: 2px;
+    }
+    .stat-row { display: flex; gap: 12px; }
+    .stat-box {
+      flex: 1;
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 14px 10px;
+      text-align: center;
+    }
+    .stat-box-value {
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--navy);
+      line-height: 1.1;
+    }
+    .stat-box-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      margin-top: 4px;
+      line-height: 1.4;
+    }
+    /* shimmer skeleton */
+    .dash-skeleton {
+      height: 180px;
+      background: linear-gradient(90deg, #EEF1F6 25%, #E4E9F2 50%, #EEF1F6 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 8px;
+    }
+    @keyframes shimmer {
+      0%  { background-position: 200% 0; }
+      100%{ background-position: -200% 0; }
+    }
+
+    @media (max-width: 576px) {
+      .content-area { padding: 20px 16px; }
+      .step-line { max-width: 40px; }
+      .dashboard-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <div class="app-header">
+    <a href="home.html">
+      <img src="logo.png" alt="Smart Rights Viewer" class="header-logo" />
+    </a>
+    <h1>กรอกข้อมูลผู้ใช้</h1>
+    <div class="header-spacer"></div>
+  </div>
+
+  <div class="content-area">
+
+    <!-- Progress Steps -->
+    <div class="progress-steps">
+      <div class="step done">
+        <div class="step-circle">✓</div>
+        <div class="step-label">เริ่มต้น</div>
+      </div>
+      <div class="step-line"></div>
+      <div class="step active">
+        <div class="step-circle">2</div>
+        <div class="step-label">กรอกข้อมูล</div>
+      </div>
+      <div class="step-line"></div>
+      <div class="step">
+        <div class="step-circle">3</div>
+        <div class="step-label">ดูผลลัพธ์</div>
+      </div>
+    </div>
+
+    <div class="section-title">ข้อมูลส่วนบุคคล</div>
+
+    <div class="row g-4">
+
+      <!-- อายุ -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-age">
+          อายุ (ปี)
+          <button class="tooltip-btn" onclick="toggleTip('tip-age')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-age">
+          กรอกอายุปัจจุบันเป็นตัวเลข เช่น 35 หรือ 65
+        </div>
+        <input type="number" id="inp-age" class="form-control"
+               placeholder="เช่น 35" min="0" max="120"
+               oninput="markFilled(this)" />
+        <div class="error-msg" id="err-age">กรุณากรอกอายุ</div>
+      </div>
+
+      <!-- สัญชาติ -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-nationality">
+          สัญชาติ
+          <button class="tooltip-btn" onclick="toggleTip('tip-nationality')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-nationality">
+          สิทธิส่วนใหญ่จะต้องมีสัญชาติไทย หากไม่มีบางสิทธิอาจไม่ได้รับ
+        </div>
+        <select id="inp-nationality" class="form-select" onchange="markFilled(this)">
+          <option value="">— เลือก —</option>
+          <option value="thai">ไทย</option>
+          <option value="other">อื่นๆ</option>
+        </select>
+        <div class="error-msg" id="err-nationality">กรุณาเลือกสัญชาติ</div>
+      </div>
+
+      <!-- สถานะการทำงาน -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-employment">
+          สถานะการทำงาน
+          <button class="tooltip-btn" onclick="toggleTip('tip-employment')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-employment">
+          ลูกจ้าง = ทำงานบริษัทมีนายจ้าง<br>อาชีพอิสระ = ค้าขาย รับจ้างทั่วไป<br>ไม่ประกอบอาชีพ = ไม่มีรายได้ประจำ
+        </div>
+        <select id="inp-employment" class="form-select" onchange="markFilled(this)">
+          <option value="">— เลือก —</option>
+          <option value="employed">มีงานทำ (ลูกจ้าง)</option>
+          <option value="self">ประกอบธุรกิจ/อาชีพอิสระ</option>
+          <option value="unemployed">ไม่ประกอบอาชีพ</option>
+        </select>
+        <div class="error-msg" id="err-employment">กรุณาเลือกสถานะการทำงาน</div>
+      </div>
+
+      <!-- ประกันสังคม -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-social-security">
+          ประกันสังคม
+          <button class="tooltip-btn" onclick="toggleTip('tip-ss')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-ss">
+          ม.33 = ลูกจ้างบริษัท นายจ้างหักเงินให้อัตโนมัติ<br>
+          ม.39 = เคยเป็น ม.33 แล้วออกจากงาน ส่งเองต่อเนื่อง<br>
+          ม.40 = สมัครเองสำหรับอาชีพอิสระ
+        </div>
+        <select id="inp-social-security" class="form-select" onchange="markFilled(this)">
+          <option value="">— เลือก —</option>
+          <option value="33">มาตรา 33 (ลูกจ้าง)</option>
+          <option value="39">มาตรา 39 (ผู้ประกันตนเอง)</option>
+          <option value="40">มาตรา 40 (อาชีพอิสระ)</option>
+          <option value="none">ไม่มีประกันสังคม</option>
+        </select>
+        <div class="error-msg" id="err-ss">กรุณาเลือกประเภทประกันสังคม</div>
+      </div>
+
+      <!-- บุตร -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-children">
+          บุตร
+          <button class="tooltip-btn" onclick="toggleTip('tip-children')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-children">
+          ท่านมีบุตรที่มีอายุ 0-6 ปีบ้างหรือไม่
+        </div>
+        <select id="inp-children" class="form-select" onchange="markFilled(this)">
+          <option value="">— เลือก —</option>
+          <option value="0">ไม่มีบุตร</option>
+          <option value="1">มีบุตร (อายุ 0–6 ปี)</option>
+          <option value="2">มีบุตรอายุมากกว่า6ปี</option>
+        </select>
+        <div class="error-msg" id="err-children">กรุณาเลือกสถานะบุตร</div>
+      </div>
+
+      <!-- สถานะผู้พิการ -->
+      <div class="col-md-4">
+        <label class="form-label-th" for="inp-disability">
+          สถานะผู้พิการ
+          <button class="tooltip-btn" onclick="toggleTip('tip-disability')">?</button>
+        </label>
+        <div class="tooltip-box" id="tip-disability">
+          บัตรผู้พิการออกโดยกรมส่งเสริมและพัฒนาคุณภาพชีวิตคนพิการ / หากท่านยังไม่มีบัตรแต่มีความพิการทางร่างกาย สามารถเลือก <br>"มีบัตรผู้พิการ"
+        </div>
+        <select id="inp-disability" class="form-select" onchange="markFilled(this)">
+          <option value="">— เลือก —</option>
+          <option value="yes">มีบัตรผู้พิการ</option>
+          <option value="no">ไม่มี</option>
+        </select>
+        <div class="error-msg" id="err-disability">กรุณาเลือกสถานะผู้พิการ</div>
+      </div>
+
+    </div><!-- /.row -->
+
+    <!-- ── Dashboard Section ── -->
+    <div class="dashboard-section" id="dashboard-section">
+      <div class="section-title">สถิติการใช้งานระบบ</div>
+      <div class="dashboard-grid">
+
+        <!-- Stat boxes -->
+        <div class="dash-card">
+          <div class="dash-card-title">ภาพรวมการใช้งาน</div>
+          <div class="stat-row">
+            <div class="stat-box">
+              <div class="stat-box-value" id="stat-total">—</div>
+              <div class="stat-box-label">การตรวจสอบ<br>ทั้งหมด</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-box-value" id="stat-avg">—</div>
+              <div class="stat-box-label">สิทธิเฉลี่ย<br>ต่อคน</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-box-value" id="stat-ai">—</div>
+              <div class="stat-box-label">เวลา AI<br>เฉลี่ย (ms)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bar chart -->
+        <div class="dash-card">
+          <div class="dash-card-title">สิทธิที่ได้รับบ่อยที่สุด</div>
+          <div id="chart-skeleton" class="dash-skeleton"></div>
+          <canvas id="benefitChart" style="display:none; max-height:180px;"></canvas>
+        </div>
+
+      </div>
+    </div>
+
+  </div><!-- /.content-area -->
+
+  <!-- Footer actions -->
+  <div class="footer-actions">
+    <button class="btn-action primary flex-fill" onclick="submitForm()">ตรวจสอบสิทธิ &nbsp;</button>
+    <button class="btn-action secondary" onclick="clearForm()">ล้างข้อมูล</button>
+  </div>
+
+  <script src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script>
+    const API_BASE_URL = "http://localhost:8000";
+
+    /* ── Tooltip toggle ── */
+    function toggleTip(id) {
+      document.querySelectorAll('.tooltip-box').forEach(el => {
+        if (el.id !== id) el.classList.remove('show');
+      });
+      document.getElementById(id).classList.toggle('show');
+    }
+    document.addEventListener('click', (e) => {
+      if (!e.target.classList.contains('tooltip-btn')) {
+        document.querySelectorAll('.tooltip-box').forEach(el => el.classList.remove('show'));
+      }
+    });
+
+    /* ── Filled state ── */
+    function markFilled(el) {
+      if (el.value && el.value !== '') {
+        el.classList.add('filled');
+        el.classList.remove('is-invalid');
+        const errId = 'err-' + el.id.replace('inp-', '').replace('social-security', 'ss');
+        const errEl = document.getElementById(errId);
+        if (errEl) errEl.classList.remove('show');
+      } else {
+        el.classList.remove('filled');
+      }
+    }
+
+    /* ── Restore ค่าเดิม ── */
+    window.addEventListener('DOMContentLoaded', () => {
+      const saved = sessionStorage.getItem('userProfile');
+      if (saved) {
+        const p = JSON.parse(saved);
+        const fields = [
+          ['inp-age',             p.age],
+          ['inp-nationality',     p.nationality],
+          ['inp-social-security', p.social_security],
+          ['inp-children',        p.children],
+          ['inp-employment',      p.employment],
+          ['inp-disability',      p.disability],
+        ];
+        fields.forEach(([id, val]) => {
+          const el = document.getElementById(id);
+          if (el && val !== undefined && val !== '') {
+            el.value = val;
+            markFilled(el);
+          }
+        });
+      }
+      loadDashboard();
+    });
+
+    /* ── Clear ── */
+    function clearForm() {
+      ['inp-age','inp-nationality','inp-social-security',
+       'inp-children','inp-employment','inp-disability'].forEach(id => {
+        const el = document.getElementById(id);
+        el.value = '';
+        el.classList.remove('filled', 'is-invalid');
+      });
+      document.querySelectorAll('.error-msg').forEach(e => e.classList.remove('show'));
+      sessionStorage.removeItem('userProfile');
+    }
+
+    
+    /* ── Count-up animation ── */
+    function countUp(el, target, decimal = false) {
+      const dur   = 800;
+      const start = performance.now();
+      const step  = (now) => {
+        const p = Math.min((now - start) / dur, 1);
+        const e = 1 - Math.pow(1 - p, 3);
+        el.textContent = decimal
+          ? (e * target).toFixed(1)
+          : Math.floor(e * target).toLocaleString("th-TH");
+        if (p < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }
+
+    /* ── ชื่อย่อสิทธิ ── */
+    const SHORT_NAME = {
+      "เบี้ยยังชีพผู้สูงอายุ":                   "เบี้ยผู้สูงอายุ",
+      "เบี้ยความพิการ":                            "เบี้ยผู้พิการ",
+      "สวัสดิการแห่งรัฐ (บัตรคนจน)":              "บัตรคนจน",
+      "ประกันสังคม มาตรา 33":                      "ม.33",
+      "ประกันสังคม มาตรา 39":                      "ม.39",
+      "ประกันสังคม มาตรา 40":                      "ม.40",
+      "เงินอุดหนุนเด็กแรกเกิด":                   "เด็กแรกเกิด",
+      "สิทธิหลักประกันสุขภาพถ้วนหน้า (บัตรทอง)": "บัตรทอง",
+    };
+
+    /* ── Load dashboard ── */
+    async function loadDashboard() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/stats`);
+        if (!res.ok) throw new Error("stats failed");
+        const data = await res.json();
+
+        // stat boxes
+        countUp(document.getElementById("stat-total"), data.total_inquiries    || 0);
+        countUp(document.getElementById("stat-avg"),   data.avg_benefits       || 0, true);
+        countUp(document.getElementById("stat-ai"),    data.avg_ai_response_ms || 0);
+
+        // bar chart
+        const top = data.top_benefits || [];
+        document.getElementById("chart-skeleton").style.display = "none";
+
+        if (top.length === 0) {
+          document.getElementById("benefitChart").style.display = "none";
+          return;
+        }
+
+        const canvas = document.getElementById("benefitChart");
+        canvas.style.display = "block";
+
+        new Chart(canvas, {
+          type: "bar",
+          data: {
+            labels:   top.map(t => SHORT_NAME[t.benefit] || t.benefit),
+            datasets: [{
+              label:           "จำนวนครั้ง",
+              data:            top.map(t => t.count),
+              backgroundColor: [
+                "rgba(27,58,107,0.80)",
+                "rgba(35,80,160,0.75)",
+                "rgba(27,58,107,0.65)",
+                "rgba(35,80,160,0.55)",
+                "rgba(27,58,107,0.45)",
+              ],
+              borderColor:     "rgba(27,58,107,1)",
+              borderWidth:     1,
+              borderRadius:    6,
+            }]
+          },
+          options: {
+            responsive:          true,
+            maintainAspectRatio: true,
+            plugins: {
+              legend: { display: false },
+              tooltip: {
+                callbacks: {
+                  label: ctx => ` ${ctx.parsed.y} ครั้ง`
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { font: { family: "Sarabun, sans-serif", size: 11 }, color: "#1A2340" },
+                grid:  { display: false },
+              },
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  stepSize: 1,
+                  font: { family: "Sarabun, sans-serif", size: 11 },
+                  color: "#8796AB",
+                },
+                grid: { color: "#E8EDF5" },
+              }
+            }
+          }
+        });
+
+      } catch (e) {
+        // ซ่อน dashboard ถ้า backend ไม่ตอบ
+        document.getElementById("dashboard-section").style.display = "none";
+        console.warn("Dashboard unavailable:", e);
+      }
+    }
+  </script>
+
+</body>
+</html>
