@@ -96,6 +96,32 @@ class CheckRightsResponse(BaseModel):
     benefits: list[BenefitOut]
 
 
+class TextAnalysisRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4000)
+
+
+class SourceOut(BaseModel):
+    title: str
+    url: str = ""
+    docs: list[str] = []
+    contact: list[str] = []
+
+
+class AnalysisBenefitOut(BaseModel):
+    name: str
+    status: Literal["likely_eligible", "needs_verification", "not_eligible"]
+    explanation: str
+    missing_information: list[str] = []
+    sources: list[SourceOut] = []
+
+
+class TextAnalysisResponse(BaseModel):
+    summary: str
+    benefits: list[AnalysisBenefitOut]
+    follow_up_questions: list[str] = []
+    coverage_warning: str
+
+
 def _to_user_profile(req: ProfileRequest) -> UserProfile:
     """แปลง ProfileRequest → UserProfile รับ None ได้ทุก field"""
 
@@ -152,6 +178,24 @@ async def check_rights_endpoint(payload: ProfileRequest, request: Request):
             for b in benefits
         ],
     )
+
+
+@app.post("/analyze-rights", response_model=TextAnalysisResponse, tags=["Rights"])
+async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request):
+    """AI-first rights analysis from free text and retrieved catalogue evidence."""
+    if not check_rate_limit(request.client.host):
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    try:
+        candidates = await rag.retrieve_for_text(payload.text)
+        analysis = await llm.analyze_rights(payload.text, candidates)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("AI/RAG analysis failed")
+        raise HTTPException(status_code=502, detail="ไม่สามารถวิเคราะห์ด้วย AI และ RAG ได้ในขณะนี้") from exc
+
+    return TextAnalysisResponse(**analysis)
 
 
 @app.post("/explain", tags=["AI"])

@@ -6,39 +6,23 @@ const API_BASE = "http://localhost:8000";
 
 /* ── Submit form ──────────────────────────────────────────── */
 async function submitForm() {
-  const profile = {};
+  const input = document.getElementById("inp-profile-text");
+  const text = input?.value.trim() || "";
 
-  const age = parseInt(document.getElementById("inp-age")?.value);
-  if (!isNaN(age) && age > 0) profile.age = age;
-
-  const nat = document.getElementById("inp-nationality")?.value;
-  if (nat) profile.nationality = nat;
-
-  const ss = document.getElementById("inp-social-security")?.value;
-  if (ss) profile.social_security = ss;
-
-  const emp = document.getElementById("inp-employment")?.value;
-  if (emp) profile.employment = emp;
-
-  const ch = document.getElementById("inp-children")?.value;
-  if (ch) profile.children = ch;
-
-  const dis = document.getElementById("inp-disability")?.value;
-  if (dis) profile.disability = dis;
-
-  // ต้องกรอกอย่างน้อย 1 field
-  if (Object.keys(profile).length === 0) {
-    alert("กรุณากรอกข้อมูลอย่างน้อย 1 ช่อง");
+  if (!text) {
+    input?.classList.add("is-invalid");
+    document.getElementById("err-profile-text")?.classList.add("show");
+    alert("กรุณาพิมพ์ข้อมูลที่ต้องการให้ระบบวิเคราะห์");
     return;
   }
 
-  sessionStorage.setItem("userProfile", JSON.stringify(profile));
+  sessionStorage.setItem("userProfileText", text);
 
   try {
-    const res = await fetch(`${API_BASE}/check-rights`, {
+    const res = await fetch(`${API_BASE}/analyze-rights`, {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify(profile),
+      body:    JSON.stringify({ text }),
     });
 
     if (!res.ok) {
@@ -48,7 +32,7 @@ async function submitForm() {
     }
 
     const data = await res.json();
-    sessionStorage.setItem("benefits", JSON.stringify(data.benefits));
+    sessionStorage.setItem("analysis", JSON.stringify(data));
     window.location.href = "result.html";
 
   } catch (e) {
@@ -58,13 +42,14 @@ async function submitForm() {
 }
 
 function clearForm() {
-  ["inp-age","inp-nationality","inp-social-security",
-   "inp-children","inp-employment","inp-disability"]
-    .forEach(id => {
-      const el = document.getElementById(id);
-      if (el) { el.value = ""; el.classList.remove("filled","is-invalid"); }
-    });
-  sessionStorage.removeItem("userProfile");
+  const input = document.getElementById("inp-profile-text");
+  if (input) {
+    input.value = "";
+    input.classList.remove("filled", "is-invalid");
+  }
+  document.getElementById("err-profile-text")?.classList.remove("show");
+  sessionStorage.removeItem("analysis");
+  sessionStorage.removeItem("userProfileText");
 }
 
 /* ── Render results ───────────────────────────────────────── */
@@ -100,6 +85,32 @@ function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, char => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
   }[char]));
+}
+
+function renderAnalysis(analysis) {
+  const container = document.getElementById("result-content");
+  if (!container) return;
+  const labels = {
+    likely_eligible: "อาจมีสิทธิ",
+    needs_verification: "อาจมีสิทธิ แต่ต้องตรวจสอบเพิ่ม",
+    not_eligible: "ยังไม่น่ามีสิทธิจากข้อมูลที่ระบุ",
+  };
+  const grouped = ["likely_eligible", "needs_verification", "not_eligible"];
+  const cards = grouped.flatMap(status => (analysis.benefits || [])
+    .filter(item => item.status === status)
+    .map(item => {
+      const missing = (item.missing_information || []).length
+        ? `<h4>ข้อมูลที่ต้องตรวจเพิ่ม</h4><ul>${item.missing_information.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
+        : "";
+      const sources = (item.sources || []).map(source =>
+        `${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a>` : escapeHtml(source.title)}`
+      ).join(" · ") || "ไม่มีลิงก์อ้างอิงในฐานข้อมูล";
+      return `<article class="rag-card status-${status}"><div class="rag-card-top"><p>${labels[status]}</p></div><h3>${escapeHtml(item.name)}</h3><div class="rag-answer"><div class="rag-answer-label">คำอธิบายจาก AI และ RAG</div><p>${escapeHtml(item.explanation)}</p></div>${missing}<div class="rag-footer"><span>แหล่งข้อมูล: ${sources}</span></div></article>`;
+    }));
+  const questions = (analysis.follow_up_questions || []).length
+    ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
+    : "";
+  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล</p></div>'}${questions}<p class="disclaimer">${escapeHtml(analysis.coverage_warning || "")}</p>`;
 }
 
 function renderRagResults(benefits, aiBenefits = [], aiUnavailable = false) {

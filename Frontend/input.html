@@ -108,6 +108,18 @@
     }
     .form-control::placeholder { color: #bbb; }
 
+    .profile-textarea {
+      min-height: 190px;
+      resize: vertical;
+      line-height: 1.65;
+    }
+    .input-hint {
+      margin-top: 9px;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      line-height: 1.55;
+    }
+
     .form-control.filled,
     .form-select.filled {
       border-color: #1D9E75;
@@ -272,117 +284,13 @@
       </div>
     </div>
 
-    <div class="section-title">ข้อมูลส่วนบุคคล</div>
-
-    <div class="row g-4">
-
-      <!-- อายุ -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-age">
-          อายุ (ปี)
-          <button class="tooltip-btn" onclick="toggleTip('tip-age')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-age">
-          กรอกอายุปัจจุบันเป็นตัวเลข เช่น 35 หรือ 65
-        </div>
-        <input type="number" id="inp-age" class="form-control"
-               placeholder="เช่น 35" min="0" max="120"
-               oninput="markFilled(this)" />
-        <div class="error-msg" id="err-age">กรุณากรอกอายุ</div>
-      </div>
-
-      <!-- สัญชาติ -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-nationality">
-          สัญชาติ
-          <button class="tooltip-btn" onclick="toggleTip('tip-nationality')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-nationality">
-          สิทธิส่วนใหญ่จะต้องมีสัญชาติไทย หากไม่มีบางสิทธิอาจไม่ได้รับ
-        </div>
-        <select id="inp-nationality" class="form-select" onchange="markFilled(this)">
-          <option value="">— เลือก —</option>
-          <option value="thai">ไทย</option>
-          <option value="other">อื่นๆ</option>
-        </select>
-        <div class="error-msg" id="err-nationality">กรุณาเลือกสัญชาติ</div>
-      </div>
-
-      <!-- สถานะการทำงาน -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-employment">
-          สถานะการทำงาน
-          <button class="tooltip-btn" onclick="toggleTip('tip-employment')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-employment">
-          ลูกจ้าง = ทำงานบริษัทมีนายจ้าง<br>อาชีพอิสระ = ค้าขาย รับจ้างทั่วไป<br>ไม่ประกอบอาชีพ = ไม่มีรายได้ประจำ
-        </div>
-        <select id="inp-employment" class="form-select" onchange="markFilled(this)">
-          <option value="">— เลือก —</option>
-          <option value="employed">มีงานทำ (ลูกจ้าง)</option>
-          <option value="self">ประกอบธุรกิจ/อาชีพอิสระ</option>
-          <option value="unemployed">ไม่ประกอบอาชีพ</option>
-        </select>
-        <div class="error-msg" id="err-employment">กรุณาเลือกสถานะการทำงาน</div>
-      </div>
-
-      <!-- ประกันสังคม -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-social-security">
-          ประกันสังคม
-          <button class="tooltip-btn" onclick="toggleTip('tip-ss')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-ss">
-          ม.33 = ลูกจ้างบริษัท นายจ้างหักเงินให้อัตโนมัติ<br>
-          ม.39 = เคยเป็น ม.33 แล้วออกจากงาน ส่งเองต่อเนื่อง<br>
-          ม.40 = สมัครเองสำหรับอาชีพอิสระ
-        </div>
-        <select id="inp-social-security" class="form-select" onchange="markFilled(this)">
-          <option value="">— เลือก —</option>
-          <option value="33">มาตรา 33 (ลูกจ้าง)</option>
-          <option value="39">มาตรา 39 (ผู้ประกันตนเอง)</option>
-          <option value="40">มาตรา 40 (อาชีพอิสระ)</option>
-          <option value="none">ไม่มีประกันสังคม</option>
-        </select>
-        <div class="error-msg" id="err-ss">กรุณาเลือกประเภทประกันสังคม</div>
-      </div>
-
-      <!-- บุตร -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-children">
-          บุตร
-          <button class="tooltip-btn" onclick="toggleTip('tip-children')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-children">
-          ท่านมีบุตรที่มีอายุ 0-6 ปีบ้างหรือไม่
-        </div>
-        <select id="inp-children" class="form-select" onchange="markFilled(this)">
-          <option value="">— เลือก —</option>
-          <option value="0">ไม่มีบุตร</option>
-          <option value="1">มีบุตร (อายุ 0–6 ปี)</option>
-          <option value="2">มีบุตรอายุมากกว่า6ปี</option>
-        </select>
-        <div class="error-msg" id="err-children">กรุณาเลือกสถานะบุตร</div>
-      </div>
-
-      <!-- สถานะผู้พิการ -->
-      <div class="col-md-4">
-        <label class="form-label-th" for="inp-disability">
-          สถานะผู้พิการ
-          <button class="tooltip-btn" onclick="toggleTip('tip-disability')">?</button>
-        </label>
-        <div class="tooltip-box" id="tip-disability">
-          บัตรผู้พิการออกโดยกรมส่งเสริมและพัฒนาคุณภาพชีวิตคนพิการ / หากท่านยังไม่มีบัตรแต่มีความพิการทางร่างกาย สามารถเลือก <br>"มีบัตรผู้พิการ"
-        </div>
-        <select id="inp-disability" class="form-select" onchange="markFilled(this)">
-          <option value="">— เลือก —</option>
-          <option value="yes">มีบัตรผู้พิการ</option>
-          <option value="no">ไม่มี</option>
-        </select>
-        <div class="error-msg" id="err-disability">กรุณาเลือกสถานะผู้พิการ</div>
-      </div>
-
-    </div><!-- /.row -->
+    <div class="section-title">เล่าข้อมูลของคุณ</div>
+    <label class="form-label-th" for="inp-profile-text">พิมพ์ข้อมูลที่ต้องการให้ระบบตรวจสอบ</label>
+    <textarea id="inp-profile-text" class="form-control profile-textarea"
+      placeholder="ตัวอย่าง: อายุ 65 ปี สัญชาติไทย ไม่มีงานทำ ไม่มีประกันสังคม มีบัตรผู้พิการ และมีบุตรอายุ 4 ปี"
+      oninput="markFilled(this)"></textarea>
+    <p class="input-hint">ระบบจะอ่านอายุ สัญชาติ งาน ประกันสังคม บุตร และสถานะบัตรผู้พิการจากข้อความ แล้วใช้ logic ตรวจสิทธิเดิม</p>
+    <div class="error-msg" id="err-profile-text">กรุณาพิมพ์ข้อมูลอย่างน้อย 1 อย่าง</div>
 
     <!-- ── Dashboard Section ── -->
     <div class="dashboard-section" id="dashboard-section">
@@ -459,38 +367,23 @@
 
     /* ── Restore ค่าเดิม ── */
     window.addEventListener('DOMContentLoaded', () => {
-      const saved = sessionStorage.getItem('userProfile');
-      if (saved) {
-        const p = JSON.parse(saved);
-        const fields = [
-          ['inp-age',             p.age],
-          ['inp-nationality',     p.nationality],
-          ['inp-social-security', p.social_security],
-          ['inp-children',        p.children],
-          ['inp-employment',      p.employment],
-          ['inp-disability',      p.disability],
-        ];
-        fields.forEach(([id, val]) => {
-          const el = document.getElementById(id);
-          if (el && val !== undefined && val !== '') {
-            el.value = val;
-            markFilled(el);
-          }
-        });
+      const text = sessionStorage.getItem('userProfileText');
+      const input = document.getElementById('inp-profile-text');
+      if (text && input) {
+        input.value = text;
+        markFilled(input);
       }
       loadDashboard();
     });
 
     /* ── Clear ── */
     function clearForm() {
-      ['inp-age','inp-nationality','inp-social-security',
-       'inp-children','inp-employment','inp-disability'].forEach(id => {
-        const el = document.getElementById(id);
-        el.value = '';
-        el.classList.remove('filled', 'is-invalid');
-      });
+      const input = document.getElementById('inp-profile-text');
+      if (input) input.value = '';
+      input?.classList.remove('filled', 'is-invalid');
       document.querySelectorAll('.error-msg').forEach(e => e.classList.remove('show'));
       sessionStorage.removeItem('userProfile');
+      sessionStorage.removeItem('userProfileText');
     }
 
     

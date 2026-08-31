@@ -115,25 +115,22 @@
     let currentBenefits = [];
 
     window.addEventListener("DOMContentLoaded", () => {
-      const raw = sessionStorage.getItem("benefits");
+      const raw = sessionStorage.getItem("analysis");
       if (!raw) { window.location.href = "input.html"; return; }
 
-      currentBenefits = JSON.parse(raw);
-      renderResults(currentBenefits);
-
-      if (currentBenefits.length > 0) {
-        loadAIExplanation();
-      }
+      const analysis = JSON.parse(raw);
+      currentBenefits = analysis.benefits || [];
+      renderAnalysis(analysis);
     });
 
     function copyResults() {
       if (currentBenefits.length === 0) return;
-      let text = `ผลการตรวจสอบสิทธิประโยชน์ภาครัฐ\nพบสิทธิทั้งหมด ${currentBenefits.length} รายการ\n${"=".repeat(40)}\n\n`;
+      let text = `ผลการวิเคราะห์สิทธิประโยชน์ภาครัฐเบื้องต้น\nพบรายการ ${currentBenefits.length} รายการ\n${"=".repeat(40)}\n\n`;
       currentBenefits.forEach((b, i) => {
         text += `${i + 1}. ${b.name}\n`;
-        text += `   หมายเหตุ: เป็นคำแนะนำจาก AI และ RAG ต้องตรวจสอบกับหน่วยงาน\n`;
-        text += `   เอกสาร: ${b.docs.join(", ")}\n`;
-        text += `   ติดต่อ: ${b.contact.join(", ")}\n\n`;
+        text += `   สถานะ: ${b.status}\n`;
+        text += `   ${b.explanation}\n`;
+        text += `   ตรวจเพิ่ม: ${(b.missing_information || []).join(", ") || "-"}\n\n`;
       });
       navigator.clipboard.writeText(text).then(() => {
         const btn = document.getElementById("copy-btn");

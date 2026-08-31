@@ -3,6 +3,7 @@
 import os
 import asyncio
 import logging
+import json
 from typing import AsyncGenerator
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
@@ -118,3 +119,66 @@ async def explain_benefits(
 
     logger.error(f"All models failed: {last_error}")
     yield '{"benefits":[],"error":"AI ไม่พร้อมใช้งานในขณะนี้"}'
+
+
+async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
+    """Use only retrieved catalogue evidence to produce a user-facing analysis."""
+    if client is None:
+        raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
+
+    evidence = []
+    source_map = {}
+    for index, benefit in enumerate(benefits, 1):
+        source_id = f"S{index}"
+        source_map[source_id] = benefit
+        evidence.append(
+            f"[{source_id}] {benefit.name}\n"
+            f"URL: {benefit.link or 'ไม่มีลิงก์'}\n"
+            f"เอกสารที่ต้องใช้: {', '.join(benefit.docs) or 'ไม่ระบุ'}\n"
+            f"ติดต่อ: {', '.join(benefit.contact) or 'ไม่ระบุ'}\n"
+            f"เนื้อหา: {benefit.detail or 'ไม่มีเนื้อหาเอกสาร'}"
+        )
+
+    prompt = f"""คุณเป็นผู้ช่วยระบบแสดงสิทธิประโยชน์ภาครัฐเบื้องต้น
+
+ข้อความของผู้ใช้:
+{user_text}
+
+หลักฐานที่ RAG ค้นคืนมา (ใช้เฉพาะรายการนี้เท่านั้น):
+{chr(10).join(chr(10) + item for item in evidence)}
+
+วิเคราะห์จากข้อความผู้ใช้และหลักฐาน RAG เท่านั้น ห้ามใช้ความรู้ภายนอก ห้ามยืนยันว่าได้รับสิทธิจริง
+จัดทุกสิทธิที่มีหลักฐานลงในสถานะใดสถานะหนึ่ง:
+- likely_eligible: อาจเข้าเกณฑ์จากข้อมูลที่มี
+- needs_verification: อาจเกี่ยวข้อง แต่ข้อมูลผู้ใช้หรือเงื่อนไขในหลักฐานยังไม่พอ
+- not_eligible: ข้อมูลผู้ใช้ขัดกับเงื่อนไขที่ระบุชัดในหลักฐาน
+
+ถ้าหลักฐานไม่มีข้อมูลเพียงพอ ห้ามสรุปว่าไม่ได้สิทธิ ให้ใช้ needs_verification และระบุคำถามที่ต้องตรวจสอบ
+คืน JSON เท่านั้นตาม schema นี้:
+{{"summary":"สรุปภาษาไทย", "benefits":[{{"name":"ชื่อจากหลักฐาน", "status":"likely_eligible|needs_verification|not_eligible", "explanation":"เหตุผลภาษาไทย", "missing_information":["คำถามหรือข้อมูลที่ต้องตรวจ"], "source_ids":["S1"]}}], "follow_up_questions":["คำถามเพิ่มเติม"]}}"""
+
+    raw = await _call_model(MODEL, prompt)
+    data = json.loads(raw)
+    normalized = []
+    for item in data.get("benefits", []):
+        ids = [source_id for source_id in item.get("source_ids", []) if source_id in source_map]
+        sources = [
+            {"title": source_map[source_id].name, "url": source_map[source_id].link,
+             "docs": source_map[source_id].docs, "contact": source_map[source_id].contact}
+            for source_id in ids
+        ]
+        if not sources:
+            continue
+        normalized.append({
+            "name": item.get("name") or sources[0]["title"],
+            "status": item.get("status", "needs_verification"),
+            "explanation": item.get("explanation", "โปรดตรวจสอบกับหน่วยงานที่เกี่ยวข้อง"),
+            "missing_information": item.get("missing_information", []),
+            "sources": sources,
+        })
+    return {
+        "summary": data.get("summary", "ผลการวิเคราะห์เบื้องต้นจากเอกสารที่ระบบค้นพบ"),
+        "benefits": normalized,
+        "follow_up_questions": data.get("follow_up_questions", []),
+        "coverage_warning": "ฐานข้อมูลเอกสารสิทธิของระบบยังอยู่ระหว่างรวบรวม ผลลัพธ์นี้อาจยังไม่ครอบคลุมทุกสิทธิ โปรดตรวจสอบกับหน่วยงานเจ้าของสิทธิอีกครั้ง",
+    }
