@@ -17,28 +17,9 @@ async function submitForm() {
   }
 
   sessionStorage.setItem("userProfileText", text);
-
-  try {
-    const res = await fetch(`${API_BASE}/analyze-rights`, {
-      method:  "POST",
-      headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ text }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      alert(`เกิดข้อผิดพลาด: ${err.detail || res.status}`);
-      return;
-    }
-
-    const data = await res.json();
-    sessionStorage.setItem("analysis", JSON.stringify(data));
-    window.location.href = "result.html";
-
-  } catch (e) {
-    alert("ไม่สามารถเชื่อมต่อกับ server ได้");
-    console.error(e);
-  }
+  sessionStorage.removeItem("analysis");
+  sessionStorage.setItem("analysisPending", "true");
+  window.location.href = "result.html";
 }
 
 function clearForm() {
@@ -87,9 +68,28 @@ function escapeHtml(value) {
   }[char]));
 }
 
+function setResultActionsDisabled(disabled) {
+  const copyButton = document.getElementById("copy-btn");
+  if (copyButton) copyButton.disabled = disabled;
+}
+
+function renderAnalysisLoading() {
+  const container = document.getElementById("result-content");
+  if (!container) return;
+  setResultActionsDisabled(true);
+  container.innerHTML = `
+    <section class="rag-hero rag-hero-loading" aria-live="polite" aria-busy="true">
+      <div class="rag-kicker">AI + RAG ANALYSIS</div>
+      <h2>กำลังวิเคราะห์ข้อมูลของคุณ</h2>
+      <p>AI กำลังอ่านข้อมูลที่คุณพิมพ์และค้นหาหลักฐานจากฐานความรู้</p>
+      <div class="rag-loading" aria-label="กำลังโหลด"><span></span><span></span><span></span></div>
+    </section>`;
+}
+
 function renderAnalysis(analysis) {
   const container = document.getElementById("result-content");
   if (!container) return;
+  setResultActionsDisabled(false);
   const labels = {
     likely_eligible: "อาจมีสิทธิ",
     needs_verification: "อาจมีสิทธิ แต่ต้องตรวจสอบเพิ่ม",
@@ -111,6 +111,40 @@ function renderAnalysis(analysis) {
     ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
     : "";
   container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล</p></div>'}${questions}<p class="disclaimer">${escapeHtml(analysis.coverage_warning || "")}</p>`;
+}
+
+async function loadTextAnalysis() {
+  const text = sessionStorage.getItem("userProfileText") || "";
+  const container = document.getElementById("result-content");
+  if (!text || !container) return;
+
+  renderAnalysisLoading();
+  try {
+    const res = await fetch(`${API_BASE}/analyze-rights`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${res.status}`);
+    }
+
+    const analysis = await res.json();
+    sessionStorage.setItem("analysis", JSON.stringify(analysis));
+    renderAnalysis(analysis);
+  } catch (error) {
+    console.error("AI analysis error:", error);
+    setResultActionsDisabled(true);
+    container.innerHTML = `
+      <div class="no-result-box" role="alert">
+        <div class="no-result-icon">!</div>
+        <p class="no-result-heading">ยังไม่สามารถวิเคราะห์ด้วย AI ได้</p>
+        <p class="no-result-sub">${escapeHtml(error.message || "ไม่สามารถเชื่อมต่อกับ server ได้")}<br>กรุณาลองใหม่อีกครั้ง</p>
+      </div>`;
+  } finally {
+    sessionStorage.removeItem("analysisPending");
+  }
 }
 
 function renderRagResults(benefits, aiBenefits = [], aiUnavailable = false) {
