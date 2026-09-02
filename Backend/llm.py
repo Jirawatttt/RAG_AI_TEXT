@@ -77,8 +77,7 @@ async def _call_model(model: str, prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         response_format={"type": "json_object"},
-        max_tokens=2048,
-        temperature=0.2,
+        max_completion_tokens=2048,
     )
     return response.choices[0].message.content or ""
 
