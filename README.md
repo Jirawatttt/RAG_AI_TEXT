@@ -8,7 +8,10 @@
 ![3](/assets/3.png)
 *Input แบบครบเงื่อนไข* <br>
 
-![4](/assets/4.png)
+![4](/assets/4.1.png)
+*ตอนModel Process RAG+LLM*<br>
+
+![5](/assets/4.png)
 *ผลการวิเคราะห์ RAG+LLM*<br>
 
 ![5](/assets/5.png)
