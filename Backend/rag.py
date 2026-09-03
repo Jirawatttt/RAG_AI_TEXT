@@ -82,6 +82,8 @@ async def retrieve_candidates(profile: UserProfile) -> list[Benefit]:
             contact=item.contact,
             link=item.link,
             detail="\n".join(document.content for document in documents),
+            short_description=item.short_description,
+            benefit_details=item.benefit_details,
             matched_conditions=[],
             missing_conditions=[],
         )
@@ -128,6 +130,8 @@ async def retrieve_for_text(user_text: str, limit: int = 8) -> list[Benefit]:
             contact=item.contact,
             link=item.link,
             detail="\n".join(document.content for document in documents),
+            short_description=item.short_description,
+            benefit_details=item.benefit_details,
             matched_conditions=[],
             missing_conditions=[],
         )

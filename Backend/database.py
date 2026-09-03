@@ -115,22 +115,10 @@ class BenefitRecord(Base):
     docs = Column(JSONB, nullable=False, default=list)
     contact = Column(JSONB, nullable=False, default=list)
     link = Column(String(500), nullable=False, default="")
+    # LLM-only context; it is intentionally not embedded or used for RAG ranking.
+    short_description = Column(Text, nullable=False, default="")
+    benefit_details = Column(Text, nullable=False, default="")
     active = Column(Boolean, nullable=False, default=True)
-
-
-class BenefitCondition(Base):
-    """Structured rules used to filter benefits before RAG retrieval."""
-
-    __tablename__ = "benefit_conditions"
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    benefit_id = Column(Integer, ForeignKey("benefits.id", ondelete="CASCADE"), nullable=False, index=True)
-    label = Column(String(500), nullable=False)
-    field_name = Column(String(100), nullable=True)
-    operator = Column(String(30), nullable=False)
-    expected_value = Column(JSONB, nullable=True)
-    required = Column(Boolean, nullable=False, default=True)
-    sort_order = Column(Integer, nullable=False, default=0)
 
 
 class BenefitDocument(Base):
@@ -147,9 +135,10 @@ class BenefitDocument(Base):
 
 class CatalogueItem:
     """Lightweight read model used by rag.py; keeps ORM details out of routes."""
-    def __init__(self, record, conditions, documents):
+    def __init__(self, record, documents):
         self.name, self.docs, self.contact, self.link = record.name, record.docs, record.contact, record.link
-        self.conditions = conditions
+        self.short_description = record.short_description
+        self.benefit_details = record.benefit_details
         self.documents = documents
 
 
@@ -163,7 +152,10 @@ async def connect():
         await conn.run_sync(Base.metadata.create_all)
         # create_all does not add columns to an existing table
         await conn.execute(text("ALTER TABLE benefit_documents ADD COLUMN IF NOT EXISTS embedding JSONB"))
+        await conn.execute(text("ALTER TABLE benefits ADD COLUMN IF NOT EXISTS short_description TEXT NOT NULL DEFAULT ''"))
+        await conn.execute(text("ALTER TABLE benefits ADD COLUMN IF NOT EXISTS benefit_details TEXT NOT NULL DEFAULT ''"))
     await seed_rag_catalogue()
+    await seed_benefit_explanations()
     logger.info("✅ Database connected — tables ready")
 
 
@@ -185,25 +177,39 @@ async def seed_rag_catalogue() -> None:
             record = BenefitRecord(
                 slug=item["slug"], name=item["name"], category=item["category"],
                 docs=item["docs"], contact=item["contact"], link=item["link"],
+                short_description=item.get("short_description", ""),
+                benefit_details=item.get("benefit_details", ""),
             )
             session.add(record)
             await session.flush()
-            for order, (label, field_name, operator, expected, required) in enumerate(item["conditions"]):
-                session.add(BenefitCondition(
-                    benefit_id=record.id,
-                    label=label,
-                    field_name=field_name,
-                    operator=operator,
-                    expected_value=expected,
-                    required=required,
-                    sort_order=order,
-                ))
             session.add(BenefitDocument(
                 benefit_id=record.id, title=f"ข้อมูล {record.name}",
                 content=item["document"], source_url=item["link"],
             ))
         await session.commit()
         logger.info("✅ RAG catalogue seeded")
+
+
+async def seed_benefit_explanations() -> None:
+    """Fill blank LLM-only context from the catalogue without overwriting edits."""
+    from rag_catalog import BENEFIT_CATALOG
+
+    async with AsyncSessionLocal() as session:
+        for item in BENEFIT_CATALOG:
+            description = item.get("short_description", "")
+            details = item.get("benefit_details", "")
+            if not description and not details:
+                continue
+            record = (await session.execute(
+                select(BenefitRecord).where(BenefitRecord.slug == item["slug"])
+            )).scalar_one_or_none()
+            if record is None:
+                continue
+            if not (record.short_description or "").strip():
+                record.short_description = description
+            if not (record.benefit_details or "").strip():
+                record.benefit_details = details
+        await session.commit()
 
 
 async def load_rag_catalogue() -> list[CatalogueItem]:
@@ -214,21 +220,13 @@ async def load_rag_catalogue() -> list[CatalogueItem]:
         if not records:
             return []
         ids = [record.id for record in records]
-        conditions = (await session.execute(
-            select(BenefitCondition)
-            .where(BenefitCondition.benefit_id.in_(ids))
-            .order_by(BenefitCondition.sort_order)
-        )).scalars().all()
         documents = (await session.execute(
             select(BenefitDocument).where(BenefitDocument.benefit_id.in_(ids), BenefitDocument.active.is_(True))
         )).scalars().all()
-    by_benefit_conditions = {record.id: [] for record in records}
     by_benefit_documents = {record.id: [] for record in records}
-    for condition in conditions:
-        by_benefit_conditions[condition.benefit_id].append(condition)
     for document in documents: by_benefit_documents[document.benefit_id].append(document)
     return [
-        CatalogueItem(record, by_benefit_conditions[record.id], by_benefit_documents[record.id])
+        CatalogueItem(record, by_benefit_documents[record.id])
         for record in records
     ]
 

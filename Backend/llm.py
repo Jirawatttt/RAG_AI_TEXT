@@ -135,6 +135,8 @@ async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
             f"URL: {benefit.link or 'ไม่มีลิงก์'}\n"
             f"เอกสารที่ต้องใช้: {', '.join(benefit.docs) or 'ไม่ระบุ'}\n"
             f"ติดต่อ: {', '.join(benefit.contact) or 'ไม่ระบุ'}\n"
+            f"คำอธิบายสิทธิ (ใช้เพื่ออธิบายคำตอบ ไม่ใช่หลักฐานค้นคืน): {benefit.short_description or 'ไม่ระบุ'}\n"
+            f"ผลประโยชน์ (ใช้เพื่ออธิบายคำตอบ ไม่ใช่หลักฐานค้นคืน): {benefit.benefit_details or 'ไม่ระบุ'}\n"
             f"เนื้อหา: {benefit.detail or 'ไม่มีเนื้อหาเอกสาร'}"
         )
 

@@ -49,3 +49,5 @@ class Benefit:
     contact: list[str]
     link: str = ""
     detail: str = ""
+    short_description: str = ""
+    benefit_details: str = ""
