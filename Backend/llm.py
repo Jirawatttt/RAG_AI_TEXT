@@ -125,19 +125,18 @@ async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
     if client is None:
         raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
 
-    evidence = []
+    benefit_context = []
     source_map = {}
     for index, benefit in enumerate(benefits, 1):
         source_id = f"S{index}"
         source_map[source_id] = benefit
-        evidence.append(
+        benefit_context.append(
             f"[{source_id}] {benefit.name}\n"
             f"URL: {benefit.link or 'ไม่มีลิงก์'}\n"
             f"เอกสารที่ต้องใช้: {', '.join(benefit.docs) or 'ไม่ระบุ'}\n"
             f"ติดต่อ: {', '.join(benefit.contact) or 'ไม่ระบุ'}\n"
-            f"คำอธิบายสิทธิ (ใช้เพื่ออธิบายคำตอบ ไม่ใช่หลักฐานค้นคืน): {benefit.short_description or 'ไม่ระบุ'}\n"
-            f"ผลประโยชน์ (ใช้เพื่ออธิบายคำตอบ ไม่ใช่หลักฐานค้นคืน): {benefit.benefit_details or 'ไม่ระบุ'}\n"
-            f"เนื้อหา: {benefit.detail or 'ไม่มีเนื้อหาเอกสาร'}"
+            f"คำอธิบายสิทธิ: {benefit.short_description or 'ไม่ระบุ'}\n"
+            f"ผลประโยชน์: {benefit.benefit_details or 'ไม่ระบุ'}"
         )
 
     prompt = f"""คุณเป็นผู้ช่วยระบบแสดงสิทธิประโยชน์ภาครัฐเบื้องต้น
@@ -145,16 +144,17 @@ async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
 ข้อความของผู้ใช้:
 {user_text}
 
-หลักฐานที่ RAG ค้นคืนมา (ใช้เฉพาะรายการนี้เท่านั้น):
-{chr(10).join(chr(10) + item for item in evidence)}
+RAG ได้เปรียบเทียบข้อความผู้ใช้กับเอกสารในคลังความรู้แล้ว และคัดรายการที่เกี่ยวข้องมาให้ด้านล่าง
+ให้ใช้ข้อมูลจากตาราง benefits ของแต่ละรายการเป็นข้อมูลหลักในการสรุปสำหรับผู้ใช้:
+{chr(10).join(chr(10) + item for item in benefit_context)}
 
-วิเคราะห์จากข้อความผู้ใช้และหลักฐาน RAG เท่านั้น ห้ามใช้ความรู้ภายนอก ห้ามยืนยันว่าได้รับสิทธิจริง
-จัดทุกสิทธิที่มีหลักฐานลงในสถานะใดสถานะหนึ่ง:
+วิเคราะห์จากข้อความผู้ใช้และข้อมูล benefits ของรายการที่ RAG คัดเลือกเท่านั้น ห้ามใช้ความรู้ภายนอก ห้ามยืนยันว่าได้รับสิทธิจริง
+จัดเฉพาะสิทธิที่อาจเกี่ยวข้องกับผู้ใช้ลงในสถานะใดสถานะหนึ่ง:
 - likely_eligible: อาจเข้าเกณฑ์จากข้อมูลที่มี
 - needs_verification: อาจเกี่ยวข้อง แต่ข้อมูลผู้ใช้หรือเงื่อนไขในหลักฐานยังไม่พอ
-- not_eligible: ข้อมูลผู้ใช้ขัดกับเงื่อนไขที่ระบุชัดในหลักฐาน
 
-ถ้าหลักฐานไม่มีข้อมูลเพียงพอ ห้ามสรุปว่าไม่ได้สิทธิ ให้ใช้ needs_verification และระบุคำถามที่ต้องตรวจสอบ
+ใน explanation ให้สรุปโดยเน้นคำอธิบายสิทธิและผลประโยชน์จากข้อมูล benefits แล้วเชื่อมกับข้อมูลของผู้ใช้
+ถ้าข้อมูลไม่พอ ให้ใช้ needs_verification และระบุคำถามที่ต้องตรวจสอบ
 คืน JSON เท่านั้นตาม schema นี้:
 {{"summary":"สรุปภาษาไทย", "benefits":[{{"name":"ชื่อจากหลักฐาน", "status":"likely_eligible|needs_verification|not_eligible", "explanation":"เหตุผลภาษาไทย", "missing_information":["คำถามหรือข้อมูลที่ต้องตรวจ"], "source_ids":["S1"]}}], "follow_up_questions":["คำถามเพิ่มเติม"]}}"""
 
@@ -165,7 +165,9 @@ async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
         ids = [source_id for source_id in item.get("source_ids", []) if source_id in source_map]
         sources = [
             {"title": source_map[source_id].name, "url": source_map[source_id].link,
-             "docs": source_map[source_id].docs, "contact": source_map[source_id].contact}
+             "docs": source_map[source_id].docs, "contact": source_map[source_id].contact,
+             "short_description": source_map[source_id].short_description,
+             "benefit_details": source_map[source_id].benefit_details}
             for source_id in ids
         ]
         if not sources:

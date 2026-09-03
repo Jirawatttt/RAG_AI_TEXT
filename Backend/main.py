@@ -105,6 +105,8 @@ class SourceOut(BaseModel):
     url: str = ""
     docs: list[str] = []
     contact: list[str] = []
+    short_description: str = ""
+    benefit_details: str = ""
 
 
 class AnalysisBenefitOut(BaseModel):

@@ -57,6 +57,7 @@
     .rag-card { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 24px; box-shadow: 0 3px 12px rgba(27,58,107,.07); }
     .rag-card-top { display: flex; align-items: center; gap: 9px; color: var(--navy); font-size: .76rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }.rag-card-top span { color: #fff; background: var(--navy); border-radius: 50%; width: 27px; height: 27px; display: grid; place-items: center; }.rag-card-top p { margin: 0; }
     .rag-card h3 { margin: 13px 0 16px; color: var(--text-main); font-size: 1.16rem; }.rag-answer { background: #f2f6fc; border-left: 4px solid var(--gold); border-radius: 7px; padding: 15px 16px; }.rag-answer-label, .rag-card h4 { font-size: .72rem; color: var(--navy); letter-spacing: .08em; text-transform: uppercase; font-weight: 700; margin: 0 0 7px; }.rag-answer p { color: var(--text-sub); white-space: pre-line; line-height: 1.75; margin: 0; }
+    .benefit-facts { margin-top: 18px; padding: 16px; background: #fafbfd; border: 1px solid var(--border); border-radius: 8px; }.benefit-facts h4 { margin-bottom: 12px; }.benefit-facts dl { display: grid; grid-template-columns: 150px 1fr; gap: 10px 16px; margin: 0; font-size: .9rem; }.benefit-facts dt { color: var(--text-muted); font-weight: 600; }.benefit-facts dd { color: var(--text-sub); margin: 0; line-height: 1.6; }.benefit-facts dd p, .benefit-facts dd ul { margin: 0; padding-left: 18px; }.benefit-facts dd a { color: var(--navy-light); font-weight: 700; }
     .rag-check-note { color: var(--text-muted); font-size: .84rem; line-height: 1.6; margin: 17px 0 0; }
     .rag-footer { border-top: 1px solid var(--border); padding-top: 13px; display: flex; justify-content: space-between; gap: 15px; color: var(--text-muted); font-size: .83rem; }.rag-footer a { color: var(--navy-light); font-weight: 700; white-space: nowrap; }
 
@@ -66,7 +67,7 @@
       body { background: #fff; }
     }
     @media (max-width: 576px) {
-      .rag-card, .rag-hero { padding: 20px; }.rag-footer { flex-direction: column; }
+      .rag-card, .rag-hero { padding: 20px; }.rag-footer { flex-direction: column; }.benefit-facts dl { grid-template-columns: 1fr; gap: 4px; }.benefit-facts dd { margin-bottom: 8px; }
       .content-area { padding: 24px 16px; }
       .action-bar { justify-content: center; flex-wrap: wrap; }
     }

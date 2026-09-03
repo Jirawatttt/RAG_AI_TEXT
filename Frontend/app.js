@@ -102,10 +102,19 @@ function renderAnalysis(analysis) {
       const missing = (item.missing_information || []).length
         ? `<h4>ข้อมูลที่ต้องตรวจเพิ่ม</h4><ul>${item.missing_information.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
         : "";
-      const sources = (item.sources || []).map(source =>
-        `${source.url ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(source.title)}</a>` : escapeHtml(source.title)}`
-      ).join(" · ") || "ไม่มีลิงก์อ้างอิงในฐานข้อมูล";
-      return `<article class="rag-card status-${status}"><div class="rag-card-top"><p>${labels[status]}</p></div><h3>${escapeHtml(item.name)}</h3><div class="rag-answer"><div class="rag-answer-label">คำอธิบายจาก AI และ RAG</div><p>${escapeHtml(item.explanation)}</p></div>${missing}<div class="rag-footer"><span>แหล่งข้อมูล: ${sources}</span></div></article>`;
+      const benefitInfo = (item.sources || []).map(source => {
+        const docs = (source.docs || []).length
+          ? `<ul>${source.docs.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
+          : "<p>ไม่ระบุ</p>";
+        const contacts = (source.contact || []).length
+          ? `<ul>${source.contact.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul>`
+          : "<p>ไม่ระบุ</p>";
+        const link = source.url
+          ? `<a href="${escapeHtml(source.url)}" target="_blank" rel="noopener noreferrer">เปิดแหล่งข้อมูล</a>`
+          : "ไม่มีลิงก์อ้างอิงในฐานข้อมูล";
+        return `<section class="benefit-facts"><h4>ข้อมูลสิทธิจากฐานข้อมูล</h4><dl><dt>คำอธิบายสิทธิ</dt><dd>${escapeHtml(source.short_description || "ไม่ระบุ")}</dd><dt>ผลประโยชน์</dt><dd>${escapeHtml(source.benefit_details || "ไม่ระบุ")}</dd><dt>เอกสารที่ต้องใช้</dt><dd>${docs}</dd><dt>ติดต่อ</dt><dd>${contacts}</dd><dt>URL</dt><dd>${link}</dd></dl></section>`;
+      }).join("");
+      return `<article class="rag-card status-${status}"><div class="rag-card-top"><p>${labels[status]}</p></div><h3>${escapeHtml(item.name)}</h3><div class="rag-answer"><div class="rag-answer-label">สรุปสำหรับคุณ</div><p>${escapeHtml(item.explanation)}</p></div>${benefitInfo}${missing}</article>`;
     }));
   const questions = (analysis.follow_up_questions || []).length
     ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
