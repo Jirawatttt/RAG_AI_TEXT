@@ -119,7 +119,44 @@ function renderAnalysis(analysis) {
   const questions = (analysis.follow_up_questions || []).length
     ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
     : "";
-  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล</p></div>'}${questions}<p class="disclaimer">${escapeHtml(analysis.coverage_warning || "")}</p>`;
+  const additional = (analysis.additional_benefits || []).length
+    ? `<section class="more-rights"><h3>สิทธิที่อาจเกี่ยวข้องเพิ่มเติม (${analysis.additional_benefits.length})</h3><p>RAG พบรายการเพิ่มเติม คุณสามารถให้ AI สรุปรายละเอียดในรูปแบบเดียวกับผลหลักได้</p><button class="icon-btn" id="more-rights-btn" onclick="loadAdditionalRights()">ดูรายการเพิ่มเติม</button></section>`
+    : "";
+  currentBenefits = analysis.benefits || [];
+  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล</p></div>'}${additional}${questions}<p class="disclaimer">${escapeHtml(analysis.coverage_warning || "")}</p>`;
+}
+
+async function loadAdditionalRights() {
+  const analysis = JSON.parse(sessionStorage.getItem("analysis") || "null");
+  const text = sessionStorage.getItem("userProfileText") || "";
+  const additional = analysis?.additional_benefits || [];
+  if (!text || !additional.length) return;
+
+  const button = document.getElementById("more-rights-btn");
+  if (button) { button.disabled = true; button.textContent = "กำลังวิเคราะห์สิทธิเพิ่มเติม..."; }
+  try {
+    const res = await fetch(`${API_BASE}/analyze-more-rights`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, benefit_slugs: additional.map(item => item.slug) }),
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.detail || `HTTP ${res.status}`);
+    }
+    const more = await res.json();
+    analysis.benefits = [...(analysis.benefits || []), ...(more.benefits || [])];
+    analysis.follow_up_questions = [...new Set([
+      ...(analysis.follow_up_questions || []), ...(more.follow_up_questions || []),
+    ])];
+    analysis.additional_benefits = [];
+    sessionStorage.setItem("analysis", JSON.stringify(analysis));
+    renderAnalysis(analysis);
+  } catch (error) {
+    console.error("Additional AI analysis error:", error);
+    if (button) { button.disabled = false; button.textContent = "ลองดูรายการเพิ่มเติมอีกครั้ง"; }
+    alert(error.message || "ไม่สามารถวิเคราะห์สิทธิเพิ่มเติมได้");
+  }
 }
 
 async function loadTextAnalysis() {
@@ -128,11 +165,14 @@ async function loadTextAnalysis() {
   if (!text || !container) return;
 
   renderAnalysisLoading();
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), 60000);
   try {
     const res = await fetch(`${API_BASE}/analyze-rights`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text }),
+      signal: controller.signal,
     });
     if (!res.ok) {
       const error = await res.json().catch(() => ({}));
@@ -149,9 +189,10 @@ async function loadTextAnalysis() {
       <div class="no-result-box" role="alert">
         <div class="no-result-icon">!</div>
         <p class="no-result-heading">ยังไม่สามารถวิเคราะห์ด้วย AI ได้</p>
-        <p class="no-result-sub">${escapeHtml(error.message || "ไม่สามารถเชื่อมต่อกับ server ได้")}<br>กรุณาลองใหม่อีกครั้ง</p>
+        <p class="no-result-sub">${escapeHtml(error.name === "AbortError" ? "การวิเคราะห์ใช้เวลานานเกิน 60 วินาที" : error.message || "ไม่สามารถเชื่อมต่อกับ server ได้")}<br>กรุณาลองใหม่อีกครั้ง</p>
       </div>`;
   } finally {
+    window.clearTimeout(timeoutId);
     sessionStorage.removeItem("analysisPending");
   }
 }

@@ -137,6 +137,7 @@ class CatalogueItem:
     """Lightweight read model used by rag.py; keeps ORM details out of routes."""
     def __init__(self, record, documents):
         self.name, self.docs, self.contact, self.link = record.name, record.docs, record.contact, record.link
+        self.slug = record.slug
         self.short_description = record.short_description
         self.benefit_details = record.benefit_details
         self.documents = documents

@@ -1,207 +1,243 @@
-# Smart Rights Viewer — วิเคราะห์สิทธิจากข้อความด้วย AI + RAG
+# Smart Rights Viewer — Backend
 
-ระบบเว็บสำหรับช่วยวิเคราะห์ **สิทธิประโยชน์ภาครัฐเบื้องต้น** จากข้อความภาษาไทยที่ผู้ใช้พิมพ์ เช่น อายุ สถานะการทำงาน ประกันสังคม หรือข้อมูลครอบครัว ระบบใช้ RAG ค้นหลักฐานจากคลังความรู้ แล้วให้ OpenAI สรุปสิทธิที่อาจเกี่ยวข้อง พร้อมข้อมูลที่ต้องตรวจสอบเพิ่มและแหล่งอ้างอิง
+Backend สำหรับเว็บแอปที่ช่วยวิเคราะห์ **สิทธิประโยชน์ภาครัฐเบื้องต้น** จากข้อความภาษาไทยแบบอิสระ เช่น อายุ สถานะงาน ประกันสังคม รายได้ สัญชาติ หรือสถานะครอบครัว ระบบค้นหลักฐานจากคลังความรู้ด้วย RAG แล้วให้ LLM เป็นผู้ตัดสินใจว่าสิทธิใดเกี่ยวข้อง — **retrieval ไม่ทำหน้าที่ตัดสิน eligibility เอง**
 
-> ระบบนี้เป็นเครื่องมือคัดกรองและอธิบายเบื้องต้น ไม่ใช่การรับรองสิทธิ หน่วยงานเจ้าของสิทธิเท่านั้นที่ตรวจสอบข้อมูลจริงและยืนยันผลได้
+> ผลลัพธ์เป็นข้อมูลคัดกรองเบื้องต้น ไม่ใช่การรับรองสิทธิหรือผลอนุมัติ หน่วยงานเจ้าของสิทธิเท่านั้นที่ตรวจสอบและยืนยันผลจริงได้
 
-## คุณสมบัติ
+## ความสามารถ
 
-- รับข้อความอิสระภาษาไทย ไม่บังคับให้กรอกตามช่องตายตัว
-- ค้นข้อมูลสิทธิจาก PostgreSQL ด้วย semantic search (embeddings) และ keyword fallback
-- ใช้ RAG คัดรายการสิทธิ แล้วส่งข้อมูลสรุปจากตาราง `benefits` ให้ AI อธิบาย
-- จัดผลลัพธ์เป็น 3 สถานะ: `likely_eligible`, `needs_verification`, `not_eligible`
-- แสดงคำถาม/ข้อมูลที่ต้องตรวจเพิ่มและลิงก์อ้างอิง
-- มีหน้า loading ระหว่าง AI + RAG กำลังทำงาน
-- มีสถิติการใช้งานผ่าน `/stats`
+- รับข้อความภาษาไทย 1–4,000 ตัวอักษร รองรับข้อความที่เขียนติดกันไม่เว้นวรรค
+- ใช้ keyword-overlap fallback เมื่อ Embeddings ใช้ไม่ได้ชั่วคราว
+- จำกัด 20 requests ต่อ IP ต่อ 60 วินาที (in-memory)
+- คลังความรู้ปัจจุบันมี 8 สิทธิ — ดีไซน์ retrieval จึงเน้น "อย่าตัดของจริงทิ้ง" มากกว่า "กรองให้เหลือน้อยที่สุด"
+
+## หลักการออกแบบสำคัญ
+
+ระบบมี pipeline สองเส้นทาง แยกกันตามลักษณะ input:
+
+| | Flow แบบฟอร์ม | Flow ข้อความอิสระ |
+| --- | --- | --- |
+| Endpoint | `POST /check-rights`, `POST /explain` | `POST /analyze-rights`, `POST /analyze-more-rights` |
+| Input | ฟิลด์ที่กำหนดไว้ล่วงหน้า (`ProfileRequest`) | ข้อความอิสระ ไม่จำกัดรูปแบบ |
+| Retrieval | `rag.retrieve_candidates()` | `rag.retrieve_for_text()` |
+| กรองก่อนถึง LLM | ไม่มีเลย — ส่งครบทุกสิทธิที่ active | มี scope-check ก่อน (ดูหัวข้อ RAG) |
+| ใครตัดสิน eligibility | LLM เท่านั้น | LLM เท่านั้น |
+
+ทั้งสอง flow ยึดหลักเดียวกัน: **retrieval มีหน้าที่แค่ "หาและจัดอันดับหลักฐาน" ไม่ใช่ "ตัดสินว่าใครได้สิทธิ"** เพราะระบบไม่มี rule engine — การตัดสิน likely/needs verification/not eligible เป็นหน้าที่ของ LLM ล้วนๆ โดยอิงจากหลักฐานที่ retrieval หามาให้เท่านั้น
 
 ## สถาปัตยกรรม
 
-```text
-Frontend: input.html
-  ผู้ใช้พิมพ์ข้อมูลอิสระ
-        |
-        | เก็บข้อความชั่วคราวใน sessionStorage แล้วเปิด result.html
-        v
-Frontend: result.html
-  แสดง AI + RAG loading state
-        |
-        | POST /analyze-rights  { "text": "..." }
-        v
-FastAPI (main.py)
-        |
-        +--> rag.retrieve_for_text()
-        |      OpenAI Embeddings + PostgreSQL benefit_documents
-        |
-        `--> llm.analyze_rights()
-               OpenAI Chat Completions + ข้อมูลจาก benefits
-        |
-        v
-JSON ผลวิเคราะห์ -> แสดงบัตรผลลัพธ์บน result.html
-```
-
-## การทำงานของระบบ
-
-### 1. ผู้ใช้ป้อนข้อความ
-
-หน้า `Frontend/input.html` รับข้อความ 1–4,000 ตัวอักษร ตัวอย่างเช่น
+### Flow แบบฟอร์ม (`/check-rights`, `/explain`)
 
 ```text
-อายุ 65 ปี สัญชาติไทย ว่างงาน ไม่มีประกันสังคม และมีบัตรผู้พิการ
+Frontend (input.html)
+  │ POST /check-rights หรือ /explain { age, nationality, ... }
+  ▼
+FastAPI (main.py): validate ด้วย Literal enum, rate limit
+  ▼
+RAG (rag.retrieve_candidates)
+  ├─ สร้าง query จาก profile
+  ├─ จัดอันดับทุกสิทธิ active ด้วย keyword score (ไม่กรองทิ้งเลย)
+  └─ PostgreSQL: benefits / benefit_documents
+  ▼
+/check-rights: ตอบรายชื่อสิทธิที่จัดอันดับแล้วตรงๆ ไม่เรียก LLM
+/explain: ส่งทุกสิทธิให้ LLM (llm.explain_benefits) → stream คำอธิบายกลับเป็น SSE
+  ▼
+บันทึก analytics (database.py) → Frontend
 ```
 
-เมื่อกดปุ่มตรวจสอบ หน้าเว็บจะเก็บข้อความไว้ใน `sessionStorage` แล้วเปลี่ยนไป `result.html` ทันที เพื่อให้ผู้ใช้เห็นสถานะกำลังวิเคราะห์โดยไม่ต้องรออยู่หน้าเดิม
+### Flow ข้อความอิสระ (`/analyze-rights`, `/analyze-more-rights`)
 
-### 2. หน้า loading และการเรียก API
+```text
+Frontend (result.html)
+  │ POST /analyze-rights { "text": "..." }
+  ▼
+FastAPI (main.py): validate ความยาว, rate limit
+  ▼
+1) รู้ขอบเขตคร่าวๆ ด้วย keyword — rag.is_rights_query()
+   ├─ ไม่ผ่าน → ตอบ "ข้อมูลไม่พอ" ทันที ไม่เรียก embedding/LLM
+   ▼ ผ่าน
+2) rag.retrieve_for_text()
+   ├─ embed ข้อความด้วย text-embedding-3-small
+   ├─ เทียบ cosine similarity กับเอกสารทุกสิทธิ active
+   ├─ scope-floor check: คะแนนดีที่สุดต่ำกว่า SCOPE_FLOOR หรือไม่
+   │    ├─ ต่ำกว่า → คืนค่าว่าง (นอกขอบเขตเชิงความหมาย)
+   │    ▼ ไม่ต่ำกว่า
+   └─ คืนทุกสิทธิที่จัดอันดับแล้ว (ไม่มีการกรองทีละตัวอีก)
+   ▼
+3) main.py แบ่งผลลัพธ์: primary = RAG_LLM_RESULT_LIMIT ตัวแรก, additional = ส่วนที่เหลือ
+   ▼
+4) LLM (llm.analyze_rights) วิเคราะห์เฉพาะ primary
+   ├─ ได้เห็นเฉพาะ short_description + benefit_details ของแต่ละสิทธิ (ไม่ใช่ document ดิบ)
+   └─ ตัดสิน status: likely_eligible / needs_verification / not_eligible
+   ▼
+5) main.py ตรวจ source_ids ให้ตรงกับหลักฐานจริง + บันทึก analytics
+   ▼
+JSON response (พร้อม additional_benefits ให้กดดูเพิ่มผ่าน /analyze-more-rights) → Frontend
+```
 
-`result.html` เรียก `loadTextAnalysis()` ซึ่งแสดงการ์ด `AI + RAG ANALYSIS` พร้อมจุด animation 3 จุด แล้วจึงส่ง `POST /analyze-rights`
+**จุดสำคัญที่มักเข้าใจผิด**: `benefit.detail` (เนื้อหา `document` เต็มๆ) ถูกใช้เฉพาะใน `/explain` (ผ่าน `_build_prompt`) เท่านั้น ส่วน `/analyze-rights` (`analyze_rights`) อ่านแค่ `short_description` และ `benefit_details` — เวลาจะแก้เงื่อนไขสิทธิให้ LLM เห็น (เช่น เพิ่มเงื่อนไขสัญชาติ) **ต้องแก้ให้ครบทั้ง 3 field** ไม่งั้น flow ใด flow หนึ่งจะไม่เห็นเงื่อนไขนั้น
 
-เมื่อ API ตอบสำเร็จ หน้า loading จะถูกแทนที่ด้วยผลจริง หากเกิดข้อผิดพลาด ระบบจะแสดงข้อความผิดพลาดบนหน้า result เดิมเพื่อให้ผู้ใช้ลองใหม่ได้
+## RAG ทำงานอย่างไร
 
-### 3. RAG ค้นหลักฐาน
+RAG ใน flow ข้อความอิสระ (`retrieve_for_text`) ใช้ threshold **แบบเดียว ทำหน้าที่เดียว** ต่างจากดีไซน์เดิมที่เคยมี absolute threshold กรองทีละสิทธิ (พบว่าทำให้สิทธิที่เกี่ยวข้องจริงหลุดทิ้งไปเงียบๆ เพราะ embedding คะแนนของข้อความสั้นมักไม่สูงเท่าที่คาด):
 
-`rag.retrieve_for_text()` ทำงานกับสิทธิที่ active ทุกตัวในคลัง
+1. Normalize ข้อความ (`normalize_text`) — รองรับข้อความที่เขียนติดกันไม่เว้นวรรค
+2. `is_rights_query()` คัดกรองแบบคำ (keyword) ก่อนเรียก API ใดๆ — กันข้อความนอกเรื่องชัดเจนแบบถูกและเร็ว
+3. Embed ข้อความด้วย `text-embedding-3-small` แล้วเทียบ cosine similarity กับ embedding ของเอกสารทุกฉบับ (สร้างและ cache ใน `benefit_documents.embedding` เมื่อค้นครั้งแรก) เลือกหลักฐานสูงสุดไม่เกิน 2 ฉบับต่อสิทธิ
+4. **`SCOPE_FLOOR`** เช็คแค่ครั้งเดียวกับ**คะแนนสูงสุด**ของทั้ง query — ถ้าแม้แต่สิทธิที่ใกล้เคียงที่สุดยังต่ำกว่าเกณฑ์นี้ แปลว่า query นี้ไม่เกี่ยวกับสิทธิใดในคลังเลยจริงๆ (off-topic/พิมพ์มั่ว) จึงคืนค่าว่าง — **ไม่ใช่การกรองทีละสิทธิ ไม่มีการเก็บ score รายตัวไว้ใช้ต่อ**
+5. ถ้าผ่านข้อ 4 → คืน**ทุกสิทธิที่จัดอันดับแล้ว** (สูงสุด `RAG_DISCOVERY_RESULT_LIMIT`) ไม่มีใครถูกตัดทิ้งอีก เพราะคลังมีแค่ 8 รายการ ต้นทุนส่งให้ LLM ทั้งหมดต่ำกว่าความเสี่ยงที่จะ tune threshold ผิดแล้วตัดของจริงทิ้ง
+6. หาก Embeddings ล้มเหลว ใช้ keyword overlap กับ `SCOPE_FLOOR_KEYWORD` แทนในหลักการเดียวกัน คุณภาพการจัดอันดับจะลดลงแต่ยังใช้งานต่อได้
+7. `main.py` ส่งเพียง `RAG_LLM_RESULT_LIMIT` รายการแรก (default `10` — เท่ากับจำนวนสิทธิทั้งหมดในคลังตอนนี้ จึงแทบไม่มี `additional_benefits` เหลือให้กดดูเพิ่ม) ให้ LLM วิเคราะห์
+8. LLM ได้รับข้อความผู้ใช้พร้อมชื่อสิทธิ เอกสารที่ต้องใช้ ติดต่อ `short_description`, `benefit_details` ของสิทธิที่คัดมาเท่านั้น — ห้ามใช้ความรู้ภายนอก
+9. Backend ตรวจ `source_ids` ที่ LLM ตอบให้ตรงกับหลักฐานจริงก่อนสร้าง `sources` ใน response
 
-1. สร้าง embedding ของข้อความผู้ใช้ด้วย `text-embedding-3-small`
-2. เปรียบเทียบ query vector กับ embedding ของเอกสารแต่ละชิ้นด้วย cosine similarity
-3. เลือกเอกสารที่ใกล้ที่สุดไม่เกิน 2 ชิ้นต่อสิทธิ
-4. เรียงสิทธิตามคะแนนของเอกสารที่ใกล้ที่สุด แล้วคืนสูงสุด 8 สิทธิ
+| สถานะ | ความหมาย | เกณฑ์ที่ LLM ใช้ตัดสิน |
+| --- | --- | --- |
+| `likely_eligible` | ข้อมูลผู้ใช้สอดคล้องกับเงื่อนไขในหลักฐานระดับเบื้องต้น | หลักฐานระบุเงื่อนไข และผู้ใช้ให้ข้อมูลที่เข้าเงื่อนไขนั้น |
+| `needs_verification` | สิทธิอาจเกี่ยวข้อง แต่ข้อมูลผู้ใช้หรือหลักฐานยังไม่พอสรุป | ขาดข้อมูลบางส่วน (ไม่ใช่ข้อมูลที่ถูกปฏิเสธไปแล้ว) |
+| `not_eligible` | ข้อความผู้ใช้ปฏิเสธเงื่อนไขสำคัญที่หลักฐานกำหนดไว้ชัดเจน | เช่น หลักฐานต้องการสัญชาติไทยแต่ user บอกว่าไม่ใช่คนไทย — กฎ negation บังคับให้จัดสถานะนี้ทันที ไม่ปล่อยเป็น `needs_verification` |
 
-หาก Embeddings ใช้งานไม่ได้ชั่วคราว จะใช้ keyword overlap เป็น fallback เพื่อคัดรายการสิทธิแทน อย่างไรก็ตามคุณภาพการค้นอาจลดลง
-
-### 4. AI สรุปจากข้อมูลสิทธิที่ RAG คัดเลือก
-
-`llm.analyze_rights()` สร้าง prompt ที่มี
-
-- ข้อความต้นฉบับของผู้ใช้
-- ข้อมูลจากตาราง `benefits`: ชื่อสิทธิ, URL, เอกสารที่ใช้, ช่องทางติดต่อ, คำอธิบายสิทธิ และผลประโยชน์
-
-โมเดล `gpt-5.6-luna` ถูกกำหนดให้ใช้เฉพาะข้อมูลใน prompt และเลือกเฉพาะสิทธิที่ RAG คัดมาแล้วเห็นว่าอาจเกี่ยวข้อง
-
-| สถานะ | ความหมาย |
-| --- | --- |
-| `likely_eligible` | ข้อมูลที่ผู้ใช้ระบุสอดคล้องกับหลักฐานในระดับเบื้องต้น |
-| `needs_verification` | อาจเกี่ยวข้อง แต่ข้อมูลผู้ใช้หรือเงื่อนไขในหลักฐานยังไม่พอ |
-| `not_eligible` | ข้อมูลผู้ใช้ขัดกับเงื่อนไขที่ระบุชัดในหลักฐาน |
-
-เมื่อหลักฐานไม่เพียงพอ prompt กำหนดให้ AI ใช้ `needs_verification` แทนการสรุปว่าไม่มีสิทธิ
-
-### 5. ตรวจสอบและแสดงผล
-
-Backend ตรวจ `source_ids` ที่ AI ตอบกลับกับรายการหลักฐานจริงก่อนส่งให้ frontend หากแหล่งข้อมูลไม่ตรง ระบบจะไม่นำรายการนั้นมาแสดง ผลลัพธ์จึงประกอบด้วยคำอธิบาย ข้อมูลที่ต้องตรวจเพิ่ม และแหล่งอ้างอิงจากฐานข้อมูลเท่านั้น
+**ข้อจำกัดสำคัญของ retrieval ที่ต้องรู้ไว้**: cosine similarity จับ "ความใกล้เคียงเชิงหัวข้อ" ไม่ได้เข้าใจการปฏิเสธ (negation) — ข้อความ "ไม่ใช่คนไทย" อาจมีคะแนนใกล้เคียงกับเอกสารที่พูดเรื่องสัญชาติสูงพอๆ กับข้อความ "เป็นคนไทย" เพราะแชร์คำศัพท์เดียวกัน **การตัดสินใจที่ถูกต้องเรื่องนี้จึงต้องพึ่ง LLM + เอกสารที่ระบุเงื่อนไขชัดเจนเท่านั้น ไม่ใช่หน้าที่ของ retrieval** ดังนั้น `short_description`/`benefit_details` ของทุกสิทธิในคลังต้องระบุเงื่อนไขสำคัญ (โดยเฉพาะสัญชาติ) ไว้ตรงๆ เสมอ ไม่งั้น LLM จะไม่มีหลักฐานให้ใช้ตัดสิน `not_eligible`
 
 ## ความแม่นยำและข้อจำกัด
 
-โครงการยังไม่มีชุดทดสอบที่มีคำตอบจริงจากผู้เชี่ยวชาญหรือหน่วยงานรัฐ และยังไม่ได้วัด Precision, Recall หรือ F1-score ดังนั้น **ไม่ควรอ้างเปอร์เซ็นต์ความแม่นยำของระบบ**
+โครงการยังไม่มีชุดทดสอบที่เฉลยโดยผู้เชี่ยวชาญหรือหน่วยงานรัฐ จึง **ไม่ควรอ้างเปอร์เซ็นต์ความแม่นยำ** และยังไม่มีค่า Precision, Recall หรือ F1-score ที่ยืนยันได้
 
-ผลลัพธ์ขึ้นกับ:
+- ระบบครอบคลุมเฉพาะสิทธิและเอกสารที่อยู่ในคลังความรู้ (ปัจจุบัน 8 รายการ)
+- ผลขึ้นกับความครบถ้วนของข้อความ ความครบถ้วนของเงื่อนไขใน `short_description`/`benefit_details` คุณภาพ retrieval และการตีความของ LLM
+- เงื่อนไขจริงจำนวนมากต้องตรวจจากข้อมูลภายนอก เช่น รายได้/ทรัพย์สินครัวเรือน ทะเบียนบ้าน ประวัติประกันสังคม และสิทธิซ้ำซ้อน
+- เกณฑ์ราชการเปลี่ยนได้ จึงต้องทบทวนคลังอย่างสม่ำเสมอ
+- keyword fallback มีไว้เพื่อความต่อเนื่อง ไม่ใช่ semantic search ที่สมบูรณ์
+- embedding-based retrieval ไม่เข้าใจการปฏิเสธ (negation) — พึ่งเอกสารที่ระบุเงื่อนไขชัดเจน + LLM เป็นคนตัดสิน ไม่ใช่ retrieval
+- rate limit ไม่แชร์ข้าม worker และหายเมื่อ restart
+- ห้ามส่งเลขบัตรประชาชน รหัสผ่าน ข้อมูลบัญชี หรือข้อมูลอ่อนไหวเกินจำเป็น
 
-- ความครบถ้วนของข้อความที่ผู้ใช้พิมพ์
-- ความถูกต้อง ความใหม่ และความครอบคลุมของ `benefit_documents`
-- คุณภาพของการค้นคืนเอกสารและการตีความหลักฐานของ LLM
+ควรสร้าง test set ภาษาไทยที่มีโปรไฟล์จำลอง (รวมเคสปฏิเสธเงื่อนไข เช่น "ไม่ใช่คนไทย") หลักฐานที่ควรค้นพบ และผลที่ผู้เชี่ยวชาญรับรอง แล้ววัด retrieval hit rate, Precision, Recall, F1-score ของสถานะ และความถูกต้องของแหล่งอ้างอิง
 
-ข้อควรระวังสำคัญ:
+## API
 
-- RAG ส่งผลเฉพาะสิทธิที่มีอยู่ในคลังความรู้ ไม่ได้ครอบคลุมทุกสิทธิภาครัฐ
-- เงื่อนไขจริงหลายอย่างไม่มีในข้อความ เช่น รายได้ครัวเรือน ทรัพย์สิน ทะเบียนบ้าน หรือประวัติประกันสังคม
-- สถานะจาก AI ไม่ใช่ผลอนุมัติ และประกาศ/เกณฑ์ราชการอาจเปลี่ยนได้
-- อย่าใส่ข้อมูลลับ เช่น เลขบัตรประชาชน รหัสผ่าน หรือข้อมูลการเงินละเอียดลงในช่องข้อความ
+Swagger UI: `http://127.0.0.1:8000/docs`
 
-หากต้องการประเมินระบบเชิงตัวเลข ควรสร้าง test set ที่มี profile และผลตรวจสิทธิจริง แล้ววัดแยกเป็น retrieval hit rate, Precision, Recall และ F1-score ของการเลือกสถานะ
+### `GET /health`
 
-## API หลัก
+```json
+{ "status": "ok", "version": "1.0.0" }
+```
 
-### `POST /analyze-rights`
+### `POST /analyze-rights` — flow หลัก
 
-ใช้กับ flow การพิมพ์ข้อความอิสระของหน้าเว็บ
-
-Request:
+```json
+{ "text": "อายุ 65 ปี สัญชาติไทย ว่างงาน ไม่มีประกันสังคม และมีบัตรผู้พิการ" }
+```
 
 ```json
 {
-  "text": "อายุ 65 ปี สัญชาติไทย ว่างงาน ไม่มีประกันสังคม"
+  "summary": "สรุปผลการวิเคราะห์เบื้องต้น",
+  "benefits": [{
+    "name": "เบี้ยยังชีพผู้สูงอายุ",
+    "status": "needs_verification",
+    "explanation": "อาจเกี่ยวข้องจากอายุและสัญชาติที่ระบุ...",
+    "missing_information": ["สถานะบำนาญหรือสวัสดิการรัฐที่ซ้ำซ้อน"],
+    "sources": [{
+      "title": "เบี้ยยังชีพผู้สูงอายุ", "url": "https://www.dop.go.th/en/topic/view=200",
+      "docs": ["สำเนาบัตรประชาชน"], "contact": ["สำนักงานเทศบาล / อบต. ในพื้นที่"],
+      "short_description": "...", "benefit_details": "..."
+    }]
+  }],
+  "follow_up_questions": ["ปัจจุบันได้รับบำนาญหรือสวัสดิการอื่นจากรัฐหรือไม่"],
+  "coverage_warning": "...",
+  "additional_benefits": [{ "slug": "...", "name": "..." }]
 }
 ```
 
-Response ตัวอย่าง:
+หากข้อความนอกขอบเขต (ไม่ผ่าน `is_rights_query`) หรือไม่มีสิทธิใดผ่าน `SCOPE_FLOOR` เลย API ตอบ `200` พร้อม `benefits: []` และคำแนะนำ โดยไม่เรียก LLM
+
+### `POST /analyze-more-rights`
+
+วิเคราะห์เฉพาะ `slug` ที่คืนใน `additional_benefits` จากผลก่อนหน้า (มักจะว่างเปล่าเมื่อ `RAG_LLM_RESULT_LIMIT` ≥ จำนวนสิทธิทั้งหมดในคลัง)
+
+```json
+{ "text": "อายุ 65 ปี สัญชาติไทย ว่างงาน", "benefit_slugs": ["universal_health"] }
+```
+
+response ใช้ schema เดียวกับ `/analyze-rights` และ `additional_benefits` จะว่าง
+
+### `POST /check-rights` — flow แบบฟอร์มเดิม
+
+รับ profile ที่มีโครงสร้างและคืน candidate จาก RAG โดยไม่เรียก LLM (ไม่มีการกรองใดๆ คืนครบทุกสิทธิ active ที่จัดอันดับแล้ว)
 
 ```json
 {
-  "summary": "สรุปการวิเคราะห์เบื้องต้น",
-  "benefits": [
-    {
-      "name": "เบี้ยยังชีพผู้สูงอายุ",
-      "status": "likely_eligible",
-      "explanation": "จากอายุและสัญชาติที่ระบุ อาจเกี่ยวข้อง...",
-      "missing_information": ["ตรวจทะเบียนบ้านและสิทธิซ้ำซ้อน"],
-      "sources": [
-        {
-          "title": "เบี้ยยังชีพผู้สูงอายุ",
-          "url": "https://...",
-          "docs": ["สำเนาบัตรประชาชน"],
-          "contact": ["สำนักงานเทศบาล / อบต. ในพื้นที่"]
-        }
-      ]
-    }
-  ],
-  "follow_up_questions": ["ปัจจุบันได้รับบำนาญหรือสวัสดิการอื่นหรือไม่"],
-  "coverage_warning": "ฐานข้อมูลเอกสารสิทธิของระบบยังอยู่ระหว่างรวบรวม..."
+  "age": 65, "nationality": "thai", "social_security": "none",
+  "employment": "unemployed", "children": "0", "disability": "yes"
 }
 ```
 
-ข้อผิดพลาดที่สำคัญ:
+ค่าที่รับได้: `nationality` = `thai|other`, `social_security` = `33|39|40|none`, `employment` = `employed|self|unemployed`, `children` = `0|1|2`, `disability` = `yes|no`; ทุก field เป็น optional และ `age` ต้อง 0–120
 
-| สถานะ | ความหมาย |
+### `POST /explain` — flow แบบฟอร์มเดิมแบบ streaming
+
+รับ body แบบเดียวกับ `/check-rights` แล้วตอบเป็น Server-Sent Events (`text/event-stream`) ด้วย event `data:` และจบด้วย `data: [DONE]` — ใช้ `benefit.detail` (document เต็ม) เป็นหลักฐานให้ LLM ต่างจาก `/analyze-rights`
+
+### `GET /stats`
+
+```json
+{ "total_inquiries": 0, "avg_benefits": 0, "avg_ai_response_ms": 0, "top_benefits": [] }
+```
+
+| HTTP | กรณี |
 | --- | --- |
-| `422` | ข้อความว่างหรือยาวเกิน 4,000 ตัวอักษร |
+| `422` | validation ไม่ผ่าน, ข้อความว่าง/เกิน 4,000 ตัวอักษร หรือ slug ไม่อยู่ในผล RAG ที่อนุญาต |
 | `429` | เกิน 20 requests ต่อ IP ภายใน 60 วินาที |
-| `503` | ไม่มี `OPENAI_API_KEY` |
+| `503` | ไม่มี `OPENAI_API_KEY` ตอนต้องเรียก Embeddings หรือ LLM |
 | `502` | RAG หรือ AI วิเคราะห์ไม่สำเร็จ |
-
-### Endpoints อื่น
-
-| Method | Endpoint | หน้าที่ |
-| --- | --- | --- |
-| `GET` | `/health` | ตรวจสถานะ backend |
-| `POST` | `/check-rights` | flow เดิมแบบ form fields; คืน candidate จาก RAG |
-| `POST` | `/explain` | flow เดิมแบบ form fields; ส่งคำอธิบายผ่าน SSE |
-| `GET` | `/stats` | สรุป inquiry และเวลา AI จาก log เดิม |
-
-> `/analyze-rights` เป็น flow หลักของ frontend ปัจจุบัน และยังไม่ได้เขียนข้อมูลเข้า `inquiry_log` หรือ `ai_response_log` ดังนั้น dashboard `/stats` จะยังสะท้อนเฉพาะ flow เดิมที่ใช้ `/check-rights` และ `/explain`
+| `500` | ดึงสถิติจากฐานข้อมูลไม่สำเร็จ |
 
 ## ฐานข้อมูล
 
-| ตาราง | หน้าที่ |
-| --- | --- |
-| `benefits` | ชื่อสิทธิ หมวดหมู่ เอกสาร ช่องทางติดต่อ ลิงก์ และสถานะ active |
-| `benefit_documents` | เนื้อหาอ้างอิง URL และ embedding ของเอกสาร |
-| `inquiry_log` | log ของ flow `/check-rights` |
-| `ai_response_log` | log ของ flow `/explain` |
+ใช้ PostgreSQL ผ่าน SQLAlchemy async และ `asyncpg`; ระบบสร้างตารางเมื่อเริ่มแอป
 
-ข้อมูลเริ่มต้น 8 สิทธิอยู่ใน `rag_catalog.py` เช่น เบี้ยยังชีพผู้สูงอายุ เบี้ยความพิการ สวัสดิการแห่งรัฐ ประกันสังคมมาตรา 33/39/40 เงินอุดหนุนเด็กแรกเกิด และบัตรทอง
+| ตาราง | หน้าที่ | ใครอ่านใช้ |
+| --- | --- | --- |
+| `benefits` | สิทธิหลัก: slug, หมวด, เอกสาร, ติดต่อ, URL, `short_description`, `benefit_details`, `active` | `/analyze-rights` อ่าน `short_description`+`benefit_details`; ทุก flow อ่านชื่อ/เอกสาร/ติดต่อ |
+| `benefit_documents` | หลักฐานดิบสำหรับ RAG: title, `content`, URL, `embedding`, `active` | ใช้จัดอันดับ (ทุก flow) และเป็นหลักฐานให้ LLM เฉพาะ `/explain` เท่านั้น |
+| `inquiry_log` | profile แบบฟอร์มหรือ `text_length` และรายชื่อสิทธิที่แสดง | analytics (`/stats`) |
+| `ai_response_log` | profile/`text_length`, สิทธิ, summary/response และเวลา AI ตอบ (ms) | analytics (`/stats`) |
 
-## โครงสร้างโปรเจกต์
+**ความสัมพันธ์ระหว่าง field กับแต่ละ flow (สำคัญตอนแก้เงื่อนไขสิทธิ):**
 
 ```text
-RAG_AI_TEXT/
-├── Backend/
-│   ├── main.py          # FastAPI routes, validation และ rate limit
-│   ├── rag.py           # semantic retrieval และ keyword fallback
-│   ├── llm.py           # OpenAI embeddings และ AI analysis
-│   ├── database.py      # SQLAlchemy, PostgreSQL และ logging
-│   ├── rag_catalog.py   # ข้อมูลตั้งต้นของคลังความรู้
-│   ├── models.py        # domain models
-│   ├── run.py           # รัน Uvicorn
-│   └── README.md
-└── Frontend/
-    ├── input.html       # รับข้อความของผู้ใช้
-    ├── result.html      # loading state และผลการวิเคราะห์
-    ├── app.js           # เรียก API และ render UI
-    └── styles.css        # shared styles
+benefits.short_description ─┐
+benefits.benefit_details    ├─► /analyze-rights, /analyze-more-rights (llm.analyze_rights)
+                             │
+benefit_documents.content   ─────► /check-rights, /explain (llm.explain_benefits, ผ่าน b.detail)
+                             │
+benefit_documents.embedding ─────► ใช้จัดอันดับความใกล้เคียงในทั้งสอง flow (retrieve_candidates ใช้ keyword score, retrieve_for_text ใช้ cosine similarity)
+```
+
+แก้เงื่อนไขสิทธิ (เช่น เพิ่มเกณฑ์สัญชาติ) แล้วอยากให้**ทุก flow เห็นเงื่อนไขนั้น** ต้องแก้ทั้ง `short_description`/`benefit_details` และ `benefit_documents.content` — แก้แค่ field เดียวจะทำให้อีก flow มองไม่เห็นเงื่อนไขนั้นเลย
+
+เมื่อฐานข้อมูลว่าง `rag_catalog.py` จะ seed สิทธิเริ่มต้น 8 รายการเพียงครั้งเดียว: เบี้ยยังชีพผู้สูงอายุ เบี้ยความพิการ สวัสดิการแห่งรัฐ ประกันสังคมมาตรา 33/39/40 เงินอุดหนุนเด็กแรกเกิด และบัตรทอง **การแก้ `rag_catalog.py` ภายหลังจะไม่เขียนทับข้อมูลใน DB ที่ seed ไปแล้ว** — ต้อง `UPDATE` ผ่าน SQL โดยตรง หรือลบ record เดิมแล้วให้ seed ใหม่เท่านั้น
+
+## โครงสร้าง
+
+```text
+Backend/
+├── main.py         # FastAPI routes, schemas, CORS, rate limiting
+├── rag.py          # retrieval, cosine similarity, scope-floor gate, keyword fallback
+├── llm.py          # OpenAI Embeddings / Chat Completions และ prompt
+├── database.py     # models, lifecycle, seed, analytics
+├── rag_catalog.py  # ข้อมูลเริ่มต้นเมื่อ database ว่าง (seed ครั้งเดียว)
+├── models.py       # domain models ที่ใช้ร่วมกัน
+├── run.py          # Uvicorn development server
+├── requirements.txt
+└── README.md
 ```
 
 ## การติดตั้ง
 
-### 1. สร้าง PostgreSQL database
+### 1. เตรียม PostgreSQL
 
 ```sql
 CREATE DATABASE rights_db;
@@ -215,11 +251,17 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
+
+# scope-check เดียว ไม่ใช่ per-item filter — ดูหัวข้อ "RAG ทำงานอย่างไร"
+RAG_SCOPE_FLOOR=0.25
+RAG_SCOPE_FLOOR_KEYWORD=0.08
+RAG_DISCOVERY_RESULT_LIMIT=10
+RAG_LLM_RESULT_LIMIT=10
 ```
 
-ห้าม commit `.env` และค่าใช้จ่าย OpenAI API แยกจาก ChatGPT subscription
+`OPENAI_API_KEY` ใช้กับ OpenAI API โดยตรงและมีค่าใช้จ่ายแยกจาก ChatGPT subscription ห้าม commit `.env`
 
-### 3. เริ่ม backend
+### 3. ติดตั้งและรัน
 
 ```powershell
 cd Backend
@@ -229,25 +271,38 @@ pip install -r requirements.txt
 python run.py
 ```
 
-API จะอยู่ที่ `http://127.0.0.1:8000` และดู Swagger UI ได้ที่ `http://127.0.0.1:8000/docs`
+API อยู่ที่ `http://127.0.0.1:8000`; `run.py` เปิด reload สำหรับ development
 
-### 4. เปิด frontend
+### 4. เชื่อม Frontend
 
-เปิดโฟลเดอร์ `Frontend` ผ่าน Live Server แล้วเข้า `http://localhost:5500/home.html`
+เปิด `Frontend` ผ่าน Live Server แล้วเข้า `http://localhost:5500/home.html` ค่า CORS เริ่มต้นรองรับ `localhost:5500` และ `127.0.0.1:5500`; deployment คนละ origin ต้องเพิ่ม URL ใน `ALLOWED_ORIGINS`
 
-## การดูแลคลังความรู้
+## การดูแลรักษา
 
-หลังเริ่มใช้งานครั้งแรก ให้แก้ข้อมูลสิทธิใน PostgreSQL เป็นหลัก
+### คลังความรู้
 
-1. เพิ่มหรือแก้ `benefits` และปิดสิทธิด้วย `active = false` หากไม่ต้องการให้ค้นพบ
-2. แก้ `benefit_documents.content` ให้มีเงื่อนไขที่ชัดเจน พร้อม URL และวันที่อัปเดตจากแหล่งทางการ
-3. ตั้ง `embedding = NULL` หลังแก้เนื้อหา เพื่อให้ระบบสร้าง vector ใหม่ในการค้นครั้งถัดไป
-4. ทดสอบข้อความหลายลักษณะและให้ผู้เชี่ยวชาญตรวจผลก่อนใช้กับผู้ใช้จริง
+หลัง seed ครั้งแรก ให้ดูแลผ่าน PostgreSQL เป็นหลัก (แก้ `rag_catalog.py` จะไม่มีผลกับ DB ที่ seed ไปแล้ว)
+
+1. เพิ่ม/แก้ `benefits.short_description` และ `benefits.benefit_details` เพื่อปรับเงื่อนไขที่ `/analyze-rights` มองเห็น — **ทุกเงื่อนไขคัดออกที่สำคัญ (โดยเฉพาะสัญชาติ) ต้องเขียนตรงๆ ในสองฟิลด์นี้** ไม่งั้น LLM จะไม่มีหลักฐานตัดสิน `not_eligible`
+2. เพิ่ม/แก้ `benefit_documents.content` ด้วยเงื่อนไขชัดเจนแบบเดียวกัน สำหรับ flow `/explain`
+3. ตั้ง `embedding = NULL` หลังแก้ `content` เพื่อให้ระบบสร้าง vector ใหม่ครั้งถัดไป
+4. ตั้ง `active = false` สำหรับสิทธิหรือเอกสารที่ไม่ต้องการให้ค้นพบ แทนการลบประวัติ
+5. ทดสอบทั้งเคสปกติและเคส**ปฏิเสธเงื่อนไข** (เช่น "ไม่ใช่คนไทย", "ไม่มีบุตร") ก่อนเผยแพร่การเปลี่ยนแปลง เพื่อยืนยันว่า LLM จัดเป็น `not_eligible` ถูกต้อง ไม่ใช่ `needs_verification`
+
+### เฝ้าระวังและ production
+
+- ตรวจ `/health` และ `/stats` เพื่อติดตามสถานะ ปริมาณงาน เวลา AI ตอบ และสิทธิที่พบบ่อย
+- ติดตาม log สำหรับข้อผิดพลาด OpenAI, PostgreSQL และ `429`
+- `RAG_SCOPE_FLOOR` ปรับจาก test set ที่มี label: ลดเกณฑ์เพิ่ม recall แต่เสี่ยงให้ query นอกเรื่องหลุดผ่าน; เพิ่มเกณฑ์มีผลตรงกันข้าม — ปรับเฉพาะจุดนี้จุดเดียว ไม่ต้อง tune ต่อสิทธิ
+- ถ้าคลังโตเกิน ~10-20 รายการ ทบทวนว่ายังเหมาะจะส่งทุกสิทธิให้ LLM แบบไม่กรองอยู่หรือไม่ (ตอนนี้ตั้งใจทำแบบนี้เพราะคลังมีแค่ 8 รายการ)
+- หลาย worker/instance ควรย้าย rate limit ไป Redis หรือ API gateway และเก็บ secret ใน secret manager
+- สำรองฐานข้อมูล จำกัดสิทธิ์บัญชี PostgreSQL และทบทวน URL/เกณฑ์สิทธิเป็นรอบ
 
 ## แนวทางพัฒนาต่อ
 
-- เขียน log สำหรับ `/analyze-rights` เพื่อให้ dashboard สะท้อน flow หลัก
-- เพิ่ม test set และ evaluation อัตโนมัติสำหรับ RAG และ LLM
-- เพิ่ม metadata ของเอกสาร เช่น วันที่มีผลบังคับใช้ จังหวัด และแหล่งราชการ
-- เพิ่ม similarity threshold หรือใช้ pgvector เมื่อจำนวนเอกสารมากขึ้น
-- เพิ่ม rule checks สำหรับเงื่อนไขที่ตรวจได้แน่นอน โดยยังให้ AI อธิบายกรณีข้อมูลไม่ครบ
+- เพิ่ม Alembic migrations แทน `create_all`/`ALTER TABLE` ระหว่าง startup
+- เพิ่ม metadata เอกสาร: วันที่มีผลบังคับใช้ จังหวัด หน่วยงาน และวันที่ตรวจทาน
+- เพิ่ม automated evaluation สำหรับ retrieval, การเลือกสถานะ (โดยเฉพาะเคส negation) และความถูกต้องของแหล่งอ้างอิง
+- รวม `short_description`/`benefit_details` กับ `benefit_documents.content` ให้เหลือแหล่งความจริงเดียว ลดความเสี่ยงที่สอง flow จะเห็นเงื่อนไขไม่ตรงกัน
+- ใช้ `pgvector` หรือ vector store เมื่อจำนวนเอกสารเพิ่มขึ้นจนไม่เหมาะกับการส่งทุกสิทธิให้ LLM แบบไม่กรอง
+- เพิ่มการ redaction/ตรวจจับข้อมูลอ่อนไหวก่อนเรียก AI

@@ -3,7 +3,7 @@
 *Home* <br>
 
 ![2](/assets/2.png)
-*Input Text* <br> //เปลี่ยนรูป
+*Input Text* <br>
 
 ![3](/assets/3.png)
 *Input แบบครบเงื่อนไข* <br>

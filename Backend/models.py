@@ -51,3 +51,4 @@ class Benefit:
     detail: str = ""
     short_description: str = ""
     benefit_details: str = ""
+    slug: str = ""
