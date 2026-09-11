@@ -87,8 +87,7 @@
       gap: 6px;
     }
 
-    .form-control,
-    .form-select {
+    .form-control {
       border-radius: 8px;
       border: 1.5px solid var(--border);
       background: #fff;
@@ -99,8 +98,7 @@
       transition: border-color 0.2s, box-shadow 0.2s;
       width: 100%;
     }
-    .form-control:focus,
-    .form-select:focus {
+    .form-control:focus {
       background: #fff;
       border-color: var(--navy-light);
       box-shadow: 0 0 0 3px rgba(35,80,160,0.12);
@@ -120,14 +118,12 @@
       line-height: 1.55;
     }
 
-    .form-control.filled,
-    .form-select.filled {
+    .form-control.filled {
       border-color: #1D9E75;
       background: #F6FDF9;
     }
 
-    .form-control.is-invalid,
-    .form-select.is-invalid {
+    .form-control.is-invalid {
       border-color: #dc3545;
       background: #FFF5F5;
     }
@@ -138,37 +134,6 @@
       display: none;
     }
     .error-msg.show { display: block; }
-
-    /* ── Tooltip ── */
-    .tooltip-btn {
-      width: 18px; height: 18px;
-      border-radius: 50%;
-      background: var(--border);
-      color: var(--text-muted);
-      font-size: 0.7rem; font-weight: 700;
-      border: none; cursor: pointer;
-      display: inline-flex; align-items: center; justify-content: center;
-      transition: background 0.2s; flex-shrink: 0;
-    }
-    .tooltip-btn:hover { background: var(--navy-light); color: #fff; }
-
-    .tooltip-box {
-      display: none;
-      background: var(--navy-dark);
-      color: #fff;
-      font-size: 0.8rem; line-height: 1.6;
-      border-radius: 8px; padding: 10px 14px;
-      margin-top: 6px; position: relative;
-    }
-    .tooltip-box::before {
-      content: '';
-      position: absolute;
-      top: -6px; left: 16px;
-      border-left: 6px solid transparent;
-      border-right: 6px solid transparent;
-      border-bottom: 6px solid var(--navy-dark);
-    }
-    .tooltip-box.show { display: block; }
 
     /* header logo */
     .header-logo {
@@ -289,7 +254,6 @@
     <textarea id="inp-profile-text" class="form-control profile-textarea"
       placeholder="ตัวอย่าง: อายุ 65 ปี สัญชาติไทย ไม่มีงานทำ ไม่มีประกันสังคม มีบัตรผู้พิการ และมีบุตรอายุ 4 ปี"
       oninput="markFilled(this)"></textarea>
-    <p class="input-hint">ระบบจะอ่านอายุ สัญชาติ งาน ประกันสังคม บุตร และสถานะบัตรผู้พิการจากข้อความ แล้วใช้ logic ตรวจสิทธิเดิม</p>
     <div class="error-msg" id="err-profile-text">กรุณาพิมพ์ข้อมูลอย่างน้อย 1 อย่าง</div>
 
     <!-- ── Dashboard Section ── -->
@@ -330,7 +294,7 @@
 
   <!-- Footer actions -->
   <div class="footer-actions">
-    <button class="btn-action primary flex-fill" onclick="submitForm()">ตรวจสอบสิทธิ &nbsp;</button>
+    <button class="btn-action primary flex-fill" onclick="submitForm()">ตรวจสอบสิทธิ</button>
     <button class="btn-action secondary" onclick="clearForm()">ล้างข้อมูล</button>
   </div>
 
@@ -339,25 +303,12 @@
   <script>
     const API_BASE_URL = "http://localhost:8000";
 
-    /* ── Tooltip toggle ── */
-    function toggleTip(id) {
-      document.querySelectorAll('.tooltip-box').forEach(el => {
-        if (el.id !== id) el.classList.remove('show');
-      });
-      document.getElementById(id).classList.toggle('show');
-    }
-    document.addEventListener('click', (e) => {
-      if (!e.target.classList.contains('tooltip-btn')) {
-        document.querySelectorAll('.tooltip-box').forEach(el => el.classList.remove('show'));
-      }
-    });
-
     /* ── Filled state ── */
     function markFilled(el) {
       if (el.value && el.value !== '') {
         el.classList.add('filled');
         el.classList.remove('is-invalid');
-        const errId = 'err-' + el.id.replace('inp-', '').replace('social-security', 'ss');
+        const errId = 'err-' + el.id.replace('inp-', '');
         const errEl = document.getElementById(errId);
         if (errEl) errEl.classList.remove('show');
       } else {

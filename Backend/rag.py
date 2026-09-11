@@ -7,7 +7,7 @@ from math import sqrt
 
 import database
 import llm
-from models import Benefit, UserProfile
+from models import Benefit
 
 
 # With a catalogue this small (currently 8 benefits), retrieval only needs
@@ -37,23 +37,6 @@ _RIGHTS_TERMS = {
     "คนไทย", "ประกัน", "สังคม", "ผู้ประกันตน", "นายจ้าง",
     "ลูกจ้าง", "ครัวเรือน", "บำนาญ", "คนพิการ", "ผู้พิการ",
 }
-
-
-def _profile_query(profile: UserProfile) -> str:
-    values = ["ข้อมูลสิทธิ สวัสดิการ เงินช่วยเหลือ"]
-    if profile.age is not None:
-        values.append(f"อายุ {profile.age} ปี")
-    if profile.nationality is not None:
-        values.append("สัญชาติไทย" if profile.nationality.value == "thai" else "ไม่ใช่สัญชาติไทย")
-    if profile.social_security is not None:
-        values.append(f"ประกันสังคมมาตรา {profile.social_security.value}")
-    if profile.employment is not None:
-        values.append(f"สถานะงาน {profile.employment.value}")
-    if profile.children is not None:
-        values.append(f"สถานะบุตร {profile.children.value}")
-    if profile.has_disability_card is not None:
-        values.append("มีบัตรคนพิการ" if profile.has_disability_card else "ไม่มีบัตรคนพิการ")
-    return ", ".join(values)
 
 
 def _tokens(text: str) -> set[str]:
@@ -88,55 +71,6 @@ def _cosine(left: list[float], right: list[float]) -> float:
         return 0.0
     denominator = sqrt(sum(x * x for x in left)) * sqrt(sum(x * x for x in right))
     return sum(x * y for x, y in zip(left, right)) / denominator if denominator else 0.0
-
-
-async def _rank_documents(query: str, documents: list[database.BenefitDocument]) -> list[database.BenefitDocument]:
-    """Rank source documents with vectors, then fall back to keyword overlap."""
-    try:
-        query_embedding = await llm.embed_text(query)
-        scores = []
-        for document in documents:
-            embedding = document.embedding
-            if embedding is None:
-                embedding = await llm.embed_text(document.content)
-                await database.save_document_embedding(document.id, embedding)
-            scores.append((document, _cosine(query_embedding, embedding)))
-    except Exception:
-        scores = [(document, _keyword_score(query, document.content)) for document in documents]
-    return [document for document, _ in sorted(scores, key=lambda row: row[1], reverse=True)[:2]]
-
-
-async def retrieve_candidates(profile: UserProfile) -> list[Benefit]:
-    """Retrieve evidence for AI review; do not evaluate condition/rule records.
-
-    Every active benefit stays in the candidate set while the catalogue is
-    small.  This prevents retrieval from silently rejecting a possible right;
-    the LLM receives the ranked evidence and decides what is relevant.
-    """
-    catalogue = await database.load_rag_catalogue()
-    query = _profile_query(profile)
-    ranked: list[tuple[float, object, list[database.BenefitDocument]]] = []
-
-    for item in catalogue:
-        documents = await _rank_documents(query, list(item.documents)) if item.documents else []
-        evidence = "\n".join(document.content for document in documents)
-        ranked.append((_keyword_score(query, evidence), item, documents))
-
-    ranked.sort(key=lambda row: row[0], reverse=True)
-    return [
-        Benefit(
-            name=item.name,
-            docs=item.docs,
-            contact=item.contact,
-            link=item.link,
-            detail="\n".join(document.content for document in documents),
-            short_description=item.short_description,
-            benefit_details=item.benefit_details,
-            matched_conditions=[],
-            missing_conditions=[],
-        )
-        for _, item, documents in ranked
-    ]
 
 
 async def retrieve_for_text(user_text: str, limit: int = DEFAULT_DISCOVERY_RESULT_LIMIT) -> list[Benefit]:
