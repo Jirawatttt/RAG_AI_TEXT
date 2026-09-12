@@ -1,4 +1,4 @@
-![0](/assets/0 (home).png)
+![0](/assets/0(home).png)
 ![1](/assets/1(home).png)
 *Home* <br>
 
