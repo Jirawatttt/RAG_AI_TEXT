@@ -135,7 +135,7 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
 
     if not rag.is_rights_query(payload.text):
         return TextAnalysisResponse(**_empty_analysis(
-            "ข้อความนี้ยังไม่อยู่ในขอบเขตการวิเคราะห์สิทธิประโยชน์ภาครัฐ กรุณาระบุข้อมูลเกี่ยวกับสิทธิ สวัสดิการ หรือสถานะของคุณเพิ่มเติม"
+            "ข้อความนี้ยังไม่อยู่ในขอบเขตการวิเคราะห์สิทธิประโยชน์ภาครัฐหรือมีคำผิด กรุณาตรวจสอบคำถามหรือระบุข้อมูลเกี่ยวกับสิทธิ สวัสดิการ หรือสถานะของคุณเพิ่มเติม"
         ))
 
     started_at = time.time()

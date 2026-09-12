@@ -64,10 +64,10 @@ function renderAnalysis(analysis) {
     ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
     : "";
   const additional = (analysis.additional_benefits || []).length
-    ? `<section class="more-rights"><h3>สิทธิที่อาจเกี่ยวข้องเพิ่มเติม (${analysis.additional_benefits.length})</h3><p>RAG พบรายการเพิ่มเติม คุณสามารถให้ AI สรุปรายละเอียดในรูปแบบเดียวกับผลหลักได้</p><button class="icon-btn" id="more-rights-btn" onclick="loadAdditionalRights()">ดูรายการเพิ่มเติม</button></section>`
+    ? `<section class="more-rights"><h3>สิทธิที่อาจเกี่ยวข้องเพิ่มเติม (${analysis.additional_benefits.length})</h3><p>พบรายการเพิ่มเติม คุณสามารถให้ AI สรุปรายละเอียดในรูปแบบเดียวกับผลหลักได้</p><button class="icon-btn" id="more-rights-btn" onclick="loadAdditionalRights()">ดูรายการเพิ่มเติม</button></section>`
     : "";
   currentBenefits = analysis.benefits || [];
-  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล</p></div>'}${additional}${questions}`;
+  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">โปรดตรวจสอบคำถามของคุณ</p></div>'}${additional}${questions}`;
 
   const disclaimerEl = document.getElementById("disclaimer-text");
   if (disclaimerEl) {
