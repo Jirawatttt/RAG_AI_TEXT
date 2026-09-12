@@ -104,7 +104,7 @@
 
     <div id="result-content"></div>
 
-    <p class="disclaimer">
+    <p class="disclaimer" id="disclaimer-text">
       * หมายเหตุ: ผลที่แสดงเป็นการประเมินเบื้องต้นเท่านั้น
       กรุณาติดต่อหน่วยงานที่เกี่ยวข้องเพื่อยืนยันสิทธิอย่างเป็นทางการ
     </p>
@@ -115,47 +115,6 @@
   </div>
 
   <script src="app.js"></script>
-  <script>
-    let currentBenefits = [];
-
-    window.addEventListener("DOMContentLoaded", () => {
-      const raw = sessionStorage.getItem("analysis");
-      if (raw) {
-        try {
-          const analysis = JSON.parse(raw);
-          currentBenefits = analysis.benefits || [];
-          renderAnalysis(analysis);
-          return;
-        } catch (error) {
-          console.warn("Stored analysis is invalid:", error);
-          sessionStorage.removeItem("analysis");
-        }
-      }
-
-      if (!sessionStorage.getItem("userProfileText")) {
-        window.location.href = "input.html";
-        return;
-      }
-      loadTextAnalysis();
-    });
-
-    function copyResults() {
-      if (currentBenefits.length === 0) return;
-      let text = `ผลการวิเคราะห์สิทธิประโยชน์ภาครัฐเบื้องต้น\nพบรายการ ${currentBenefits.length} รายการ\n${"=".repeat(40)}\n\n`;
-      currentBenefits.forEach((b, i) => {
-        text += `${i + 1}. ${b.name}\n`;
-        text += `   สถานะ: ${b.status}\n`;
-        text += `   ${b.explanation}\n`;
-        text += `   ตรวจเพิ่ม: ${(b.missing_information || []).join(", ") || "-"}\n\n`;
-      });
-      navigator.clipboard.writeText(text).then(() => {
-        const btn = document.getElementById("copy-btn");
-        const ori = btn.innerHTML;
-        btn.classList.add("copied");
-        btn.innerHTML = "✓ คัดลอกแล้ว";
-        setTimeout(() => { btn.classList.remove("copied"); btn.innerHTML = ori; }, 2000);
-      });
-    }
-  </script>
+  <script src="result.js"></script>
 </body>
 </html>
