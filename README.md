@@ -5,7 +5,7 @@
 ![2](/assets/2(input).png)
 *Input Text* <br>
 
-![3](/assets/3(Text Input).png)
+![3](/assets/3(TextInput).png)
 *Input แบบครบเงื่อนไข* <br>
 
 ![4](/assets/4(Process).png)
@@ -16,10 +16,10 @@
 
 ### แบ่งเป็น 3 ประเภท
 
-![6](/assets/6(result อาจมี).png)
+![6](/assets/6(resultอาจมี).png)
 *อาจมีสิทธิ*<br>
 
-![7](/assets/7(result อาจมีแต่ต้องตรวจ).png)
+![7](/assets/7(resultอาจมีแต่ต้องตรวจ).png)
 *อาจมีสิทธิ แต่ต้องตรวจสอบเพิ่ม*<br>
 
 ![8](/assets/8(ไม่น่ามี).png)
@@ -30,8 +30,8 @@
 
 ### Defend
 
-![2.1](/assets/2.1(no input).png)
+![2.1](/assets/2.1(noinput).png)
 *No Input* <br>
 
-![16](/assets/16(result คำผิด นอกเหนือ ENG).png)
+![16](/assets/16(resultคำผิด+นอกเหนือ+ENG).png)
 *มีคำผิดหรือนอกเหนือที่ไม่เกี่ยวข้องกับระบบ* <br>
