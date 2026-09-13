@@ -13,84 +13,57 @@ Backend สำหรับเว็บแอปที่ช่วยวิเค
 
 ## หลักการออกแบบสำคัญ
 
-ระบบมี pipeline สองเส้นทาง แยกกันตามลักษณะ input:
-
-| | Flow แบบฟอร์ม | Flow ข้อความอิสระ |
-| --- | --- | --- |
-| Endpoint | `POST /check-rights`, `POST /explain` | `POST /analyze-rights`, `POST /analyze-more-rights` |
-| Input | ฟิลด์ที่กำหนดไว้ล่วงหน้า (`ProfileRequest`) | ข้อความอิสระ ไม่จำกัดรูปแบบ |
-| Retrieval | `rag.retrieve_candidates()` | `rag.retrieve_for_text()` |
-| กรองก่อนถึง LLM | ไม่มีเลย — ส่งครบทุกสิทธิที่ active | มี scope-check ก่อน (ดูหัวข้อ RAG) |
-| ใครตัดสิน eligibility | LLM เท่านั้น | LLM เท่านั้น |
-
-ทั้งสอง flow ยึดหลักเดียวกัน: **retrieval มีหน้าที่แค่ "หาและจัดอันดับหลักฐาน" ไม่ใช่ "ตัดสินว่าใครได้สิทธิ"** เพราะระบบไม่มี rule engine — การตัดสิน likely/needs verification/not eligible เป็นหน้าที่ของ LLM ล้วนๆ โดยอิงจากหลักฐานที่ retrieval หามาให้เท่านั้น
+ระบบมี pipeline เดียว รับ **ข้อความอิสระ** เป็น input เท่านั้น
+หลักที่ยึดตลอดทั้งระบบ: **retrieval (`rag.py`) มีหน้าที่แค่ "หาและจัดอันดับหลักฐาน" ไม่ใช่ "ตัดสินว่าใครได้สิทธิ"** เพราะระบบไม่มี rule engine — การตัดสิน likely/needs verification/not eligible เป็นหน้าที่ของ LLM (`llm.py`) ล้วนๆ โดยอิงจากหลักฐานที่ retrieval หามาให้เท่านั้น
 
 ## สถาปัตยกรรม
 
-### Flow แบบฟอร์ม (`/check-rights`, `/explain`)
+### Flow หลัก (`/analyze-rights`, `/analyze-more-rights`)
 
 ```text
-Frontend (input.html)
-  │ POST /check-rights หรือ /explain { age, nationality, ... }
-  ▼
-FastAPI (main.py): validate ด้วย Literal enum, rate limit
-  ▼
-RAG (rag.retrieve_candidates)
-  ├─ สร้าง query จาก profile
-  ├─ จัดอันดับทุกสิทธิ active ด้วย keyword score (ไม่กรองทิ้งเลย)
-  └─ PostgreSQL: benefits / benefit_documents
-  ▼
-/check-rights: ตอบรายชื่อสิทธิที่จัดอันดับแล้วตรงๆ ไม่เรียก LLM
-/explain: ส่งทุกสิทธิให้ LLM (llm.explain_benefits) → stream คำอธิบายกลับเป็น SSE
-  ▼
-บันทึก analytics (database.py) → Frontend
-```
-
-### Flow ข้อความอิสระ (`/analyze-rights`, `/analyze-more-rights`)
-
-```text
-Frontend (result.html)
+Frontend (result.html + result.js)
   │ POST /analyze-rights { "text": "..." }
   ▼
 FastAPI (main.py): validate ความยาว, rate limit
   ▼
 1) รู้ขอบเขตคร่าวๆ ด้วย keyword — rag.is_rights_query()
-   ├─ ไม่ผ่าน → ตอบ "ข้อมูลไม่พอ" ทันที ไม่เรียก embedding/LLM
+   ├─ ไม่ผ่าน → ตอบ "นอกขอบเขต" ทันที ไม่เรียก embedding/LLM
    ▼ ผ่าน
 2) rag.retrieve_for_text()
    ├─ embed ข้อความด้วย text-embedding-3-small
    ├─ เทียบ cosine similarity กับเอกสารทุกสิทธิ active
    ├─ scope-floor check: คะแนนดีที่สุดต่ำกว่า SCOPE_FLOOR หรือไม่
-   │    ├─ ต่ำกว่า → คืนค่าว่าง (นอกขอบเขตเชิงความหมาย)
+   │    ├─ ต่ำกว่า → คืนค่าว่าง (นอกขอบเขตเชิงความหมาย / "ข้อมูลไม่พอ")
    │    ▼ ไม่ต่ำกว่า
    └─ คืนทุกสิทธิที่จัดอันดับแล้ว (ไม่มีการกรองทีละตัวอีก)
    ▼
 3) main.py แบ่งผลลัพธ์: primary = RAG_LLM_RESULT_LIMIT ตัวแรก, additional = ส่วนที่เหลือ
    ▼
 4) LLM (llm.analyze_rights) วิเคราะห์เฉพาะ primary
-   ├─ ได้เห็นเฉพาะ short_description + benefit_details ของแต่ละสิทธิ (ไม่ใช่ document ดิบ)
-   └─ ตัดสิน status: likely_eligible / needs_verification / not_eligible
+   ├─ ได้เห็นเฉพาะ short_description + benefit_details ของแต่ละสิทธิ 
+   ├─ AI มีสิทธิ "ไม่พูดถึง" สิทธิที่เห็นว่าไม่เกี่ยวข้องเลย (ต่างจากปฏิเสธชัดเจนที่ต้องลง not_eligible)
+   └─ ตัดสิน status: likely_eligible / needs_verification / not_eligible ต่อรายการที่หยิบมาพูดถึง
    ▼
-5) main.py ตรวจ source_ids ให้ตรงกับหลักฐานจริง + บันทึก analytics
+5) main.py ตรวจ source_ids ให้ตรงกับหลักฐานจริง (ไม่ตรง → ตัดรายการนั้นทิ้งเงียบๆ) + บันทึก analytics
    ▼
 JSON response (พร้อม additional_benefits ให้กดดูเพิ่มผ่าน /analyze-more-rights) → Frontend
 ```
 
-**จุดสำคัญที่มักเข้าใจผิด**: `benefit.detail` (เนื้อหา `document` เต็มๆ) ถูกใช้เฉพาะใน `/explain` (ผ่าน `_build_prompt`) เท่านั้น ส่วน `/analyze-rights` (`analyze_rights`) อ่านแค่ `short_description` และ `benefit_details` — เวลาจะแก้เงื่อนไขสิทธิให้ LLM เห็น (เช่น เพิ่มเงื่อนไขสัญชาติ) **ต้องแก้ให้ครบทั้ง 3 field** ไม่งั้น flow ใด flow หนึ่งจะไม่เห็นเงื่อนไขนั้น
+**จุดสำคัญที่มักเข้าใจผิด**: `rag.retrieve_for_text()` ยังคง embed เอกสารทุกฉบับและต่อเนื้อหาที่ใกล้เคียงที่สุด (สูงสุด 2 ฉบับต่อสิทธิ) เก็บไว้ในฟิลด์ `Benefit.detail` — แต่ `llm.analyze_rights()` **ไม่ได้อ่านฟิลด์นี้เลย** อ่านแค่ `short_description` และ `benefit_details` (ข้อมูลระดับ catalogue) เท่านั้น เดิม `Benefit.detail` เคยถูกใช้จริงใน endpoint `/explain` (ที่ถูกถอดออกไปแล้ว) ตอนนี้จึงกลายเป็นค่าที่คำนวณไว้แต่ไม่มีใครอ่าน — เวลาจะแก้เงื่อนไขสิทธิให้ LLM เห็น (เช่น เพิ่มเงื่อนไขสัญชาติ) **ต้องแก้ที่ `benefits.short_description`/`benefits.benefit_details` เท่านั้น** แก้ที่ `benefit_documents.content` เพียงอย่างเดียวจะไม่มีผลอะไรกับสิ่งที่ LLM เห็น (มีผลแค่กับการจัดอันดับผ่าน embedding)
 
 ## RAG ทำงานอย่างไร
 
-RAG ใน flow ข้อความอิสระ (`retrieve_for_text`) ใช้ threshold **แบบเดียว ทำหน้าที่เดียว** ต่างจากดีไซน์เดิมที่เคยมี absolute threshold กรองทีละสิทธิ (พบว่าทำให้สิทธิที่เกี่ยวข้องจริงหลุดทิ้งไปเงียบๆ เพราะ embedding คะแนนของข้อความสั้นมักไม่สูงเท่าที่คาด):
+RAG (`retrieve_for_text`) ใช้ threshold **แบบเดียว ทำหน้าที่เดียว** ต่างจากดีไซน์เดิมที่เคยมี absolute threshold กรองทีละสิทธิ (พบว่าทำให้สิทธิที่เกี่ยวข้องจริงหลุดทิ้งไปเงียบๆ เพราะ embedding คะแนนของข้อความสั้นมักไม่สูงเท่าที่คาด):
 
 1. Normalize ข้อความ (`normalize_text`) — รองรับข้อความที่เขียนติดกันไม่เว้นวรรค
-2. `is_rights_query()` คัดกรองแบบคำ (keyword) ก่อนเรียก API ใดๆ — กันข้อความนอกเรื่องชัดเจนแบบถูกและเร็ว
+2. `is_rights_query()` คัดกรองแบบคำ (keyword) ก่อนเรียก API ใดๆ — กันข้อความนอกเรื่องชัดเจนแบบถูกและเร็ว **แต่เช็คแค่คำในลิสต์ภาษาไทยเท่านั้น** (ดูข้อจำกัดด้านล่าง)
 3. Embed ข้อความด้วย `text-embedding-3-small` แล้วเทียบ cosine similarity กับ embedding ของเอกสารทุกฉบับ (สร้างและ cache ใน `benefit_documents.embedding` เมื่อค้นครั้งแรก) เลือกหลักฐานสูงสุดไม่เกิน 2 ฉบับต่อสิทธิ
 4. **`SCOPE_FLOOR`** เช็คแค่ครั้งเดียวกับ**คะแนนสูงสุด**ของทั้ง query — ถ้าแม้แต่สิทธิที่ใกล้เคียงที่สุดยังต่ำกว่าเกณฑ์นี้ แปลว่า query นี้ไม่เกี่ยวกับสิทธิใดในคลังเลยจริงๆ (off-topic/พิมพ์มั่ว) จึงคืนค่าว่าง — **ไม่ใช่การกรองทีละสิทธิ ไม่มีการเก็บ score รายตัวไว้ใช้ต่อ**
 5. ถ้าผ่านข้อ 4 → คืน**ทุกสิทธิที่จัดอันดับแล้ว** (สูงสุด `RAG_DISCOVERY_RESULT_LIMIT`) ไม่มีใครถูกตัดทิ้งอีก เพราะคลังมีแค่ 8 รายการ ต้นทุนส่งให้ LLM ทั้งหมดต่ำกว่าความเสี่ยงที่จะ tune threshold ผิดแล้วตัดของจริงทิ้ง
 6. หาก Embeddings ล้มเหลว ใช้ keyword overlap กับ `SCOPE_FLOOR_KEYWORD` แทนในหลักการเดียวกัน คุณภาพการจัดอันดับจะลดลงแต่ยังใช้งานต่อได้
 7. `main.py` ส่งเพียง `RAG_LLM_RESULT_LIMIT` รายการแรก (default `10` — เท่ากับจำนวนสิทธิทั้งหมดในคลังตอนนี้ จึงแทบไม่มี `additional_benefits` เหลือให้กดดูเพิ่ม) ให้ LLM วิเคราะห์
-8. LLM ได้รับข้อความผู้ใช้พร้อมชื่อสิทธิ เอกสารที่ต้องใช้ ติดต่อ `short_description`, `benefit_details` ของสิทธิที่คัดมาเท่านั้น — ห้ามใช้ความรู้ภายนอก
-9. Backend ตรวจ `source_ids` ที่ LLM ตอบให้ตรงกับหลักฐานจริงก่อนสร้าง `sources` ใน response
+8. LLM ได้รับข้อความผู้ใช้พร้อมชื่อสิทธิ เอกสารที่ต้องใช้ ติดต่อ `short_description`, `benefit_details` ของสิทธิที่คัดมาเท่านั้น — ห้ามใช้ความรู้ภายนอก และห้ามยืนยันว่าได้รับสิทธิจริงไม่ว่าสถานะใด
+9. Backend ตรวจ `source_ids` ที่ LLM ตอบให้ตรงกับหลักฐานจริงก่อนสร้าง `sources` ใน response — ถ้าไม่ตรง รายการนั้นถูกตัดทิ้งทั้งอันโดยไม่มี log แจ้ง
 
 | สถานะ | ความหมาย | เกณฑ์ที่ LLM ใช้ตัดสิน |
 | --- | --- | --- |
@@ -98,7 +71,18 @@ RAG ใน flow ข้อความอิสระ (`retrieve_for_text`) ใ�
 | `needs_verification` | สิทธิอาจเกี่ยวข้อง แต่ข้อมูลผู้ใช้หรือหลักฐานยังไม่พอสรุป | ขาดข้อมูลบางส่วน (ไม่ใช่ข้อมูลที่ถูกปฏิเสธไปแล้ว) |
 | `not_eligible` | ข้อความผู้ใช้ปฏิเสธเงื่อนไขสำคัญที่หลักฐานกำหนดไว้ชัดเจน | เช่น หลักฐานต้องการสัญชาติไทยแต่ user บอกว่าไม่ใช่คนไทย — กฎ negation บังคับให้จัดสถานะนี้ทันที ไม่ปล่อยเป็น `needs_verification` |
 
+ทั้ง 3 สถานะเป็นการแบ่งที่ **เกิดหลัง RAG คัดกรองมาแล้วเท่านั้น** ไม่มีจุดไหนก่อนหน้านั้นในโค้ดที่ตัดสิน "มี/ไม่มีสิทธิ" และแม้แต่ `not_eligible` เองก็ยังถูกบังคับด้วยพรอมต์ให้เป็นคำ hedge เสมอ (frontend แสดงเป็น "ยังไม่น่ามีสิทธิ**จากข้อมูลที่ระบุ**" ไม่ใช่ "ไม่มีสิทธิ") — ระบบไม่มีทางฟันธงเชิงลบตรงๆ กับผู้ใช้เลยไม่ว่ากรณีใด
+
+ที่ควรรู้เพิ่ม: พรอมต์สั่งให้ LLM "จัดเฉพาะสิทธิที่อาจเกี่ยวข้อง" ลงสถานะ — สิทธิที่ LLM เห็นว่าไม่เกี่ยวข้องเลย (ต่างจากปฏิเสธชัดเจน) จะ**ไม่ถูกพูดถึงในผลลัพธ์เลย** ไม่ใช่ถูกจัดเป็น `not_eligible` พร้อมเหตุผล ถ้ารายการที่ผ่าน RAG มาทั้งหมดตกอยู่ในกลุ่มนี้ ผู้ใช้จะเห็นแค่ข้อความ "ยังไม่พบสิทธิที่มีหลักฐานเพียงพอในฐานข้อมูล" แบบทั่วไป
+
 **ข้อจำกัดสำคัญของ retrieval ที่ต้องรู้ไว้**: cosine similarity จับ "ความใกล้เคียงเชิงหัวข้อ" ไม่ได้เข้าใจการปฏิเสธ (negation) — ข้อความ "ไม่ใช่คนไทย" อาจมีคะแนนใกล้เคียงกับเอกสารที่พูดเรื่องสัญชาติสูงพอๆ กับข้อความ "เป็นคนไทย" เพราะแชร์คำศัพท์เดียวกัน **การตัดสินใจที่ถูกต้องเรื่องนี้จึงต้องพึ่ง LLM + เอกสารที่ระบุเงื่อนไขชัดเจนเท่านั้น ไม่ใช่หน้าที่ของ retrieval** ดังนั้น `short_description`/`benefit_details` ของทุกสิทธิในคลังต้องระบุเงื่อนไขสำคัญ (โดยเฉพาะสัญชาติ) ไว้ตรงๆ เสมอ ไม่งั้น LLM จะไม่มีหลักฐานให้ใช้ตัดสิน `not_eligible`
+
+**ข้อจำกัดของ `is_rights_query()` (scope-check ชั้นแรก)**: เป็น string-match ตรงตัวกับ `_RIGHTS_TERMS` ซึ่งเป็นคำไทยล้วน ไม่มี fuzzy-match หรือ spell-correction และไม่รองรับภาษาอังกฤษเลย ผลคือ 3 สถานการณ์นี้ตกไปอยู่ผลลัพธ์เดียวกันหมด ("นอกขอบเขต") ทั้งที่สาเหตุต่างกัน:
+- ข้อความนอกเรื่องจริงๆ (ตามที่ตั้งใจออกแบบไว้)
+- ข้อความพิมพ์ผิดจนคำหลัก (เช่น "สิทธิ") ไม่ตรง exact match
+- ข้อความภาษาอังกฤษที่เนื้อหาเกี่ยวข้องจริง (เช่น "old age pension") — โมเดล embedding รองรับได้ แต่ถูกกันไว้ตั้งแต่ก่อนถึงชั้น embedding
+
+ถ้าต้องการแยก 3 กรณีนี้ออกจากกัน ต้องเพิ่ม logic ใหม่ (เช่น เพิ่มคำอังกฤษเข้า `_RIGHTS_TERMS`, หรือข้าม keyword-gate แล้วให้ embedding scope-floor ตัดสินอย่างเดียว) — ปัจจุบันยังไม่ได้ทำ
 
 ## ความแม่นยำและข้อจำกัด
 
@@ -110,10 +94,13 @@ RAG ใน flow ข้อความอิสระ (`retrieve_for_text`) ใ�
 - เกณฑ์ราชการเปลี่ยนได้ จึงต้องทบทวนคลังอย่างสม่ำเสมอ
 - keyword fallback มีไว้เพื่อความต่อเนื่อง ไม่ใช่ semantic search ที่สมบูรณ์
 - embedding-based retrieval ไม่เข้าใจการปฏิเสธ (negation) — พึ่งเอกสารที่ระบุเงื่อนไขชัดเจน + LLM เป็นคนตัดสิน ไม่ใช่ retrieval
+- `is_rights_query()` เป็น keyword-whitelist ภาษาไทยล้วน แยกไม่ออกระหว่าง "นอกเรื่องจริง" กับ "พิมพ์ผิด" กับ "ภาษาอังกฤษที่เกี่ยวข้อง" (ดูหัวข้อ RAG ด้านบน)
+- `Benefit.detail` (เนื้อหาเอกสารดิบจาก RAG) ถูกคำนวณไว้แต่ `llm.analyze_rights()` ไม่ได้อ่านค่านี้ — เป็นค่าที่คำนวณทิ้งเปล่าอยู่ในโค้ดตอนนี้ ยังไม่ได้ตัดสินใจว่าจะต่อสายให้ LLM ใช้ หรือจะลดงาน embedding ระดับ document ลง (ดู "แนวทางพัฒนาต่อ")
+- ข้อความ `coverage_warning` ที่แสดงท้ายผล มาจาก 2 แหล่งคนละไฟล์ (`main.py` สำหรับกรณีไม่ถึง LLM, `llm.py` สำหรับกรณี LLM วิเคราะห์สำเร็จ) เป็นการตั้งใจให้ต่างกันตามสถานการณ์ ไม่ใช่ของหลงเหลือ แต่ยังไม่ได้รวมเป็นค่าคงที่ส่วนกลาง
 - rate limit ไม่แชร์ข้าม worker และหายเมื่อ restart
 - ห้ามส่งเลขบัตรประชาชน รหัสผ่าน ข้อมูลบัญชี หรือข้อมูลอ่อนไหวเกินจำเป็น
 
-ควรสร้าง test set ภาษาไทยที่มีโปรไฟล์จำลอง (รวมเคสปฏิเสธเงื่อนไข เช่น "ไม่ใช่คนไทย") หลักฐานที่ควรค้นพบ และผลที่ผู้เชี่ยวชาญรับรอง แล้ววัด retrieval hit rate, Precision, Recall, F1-score ของสถานะ และความถูกต้องของแหล่งอ้างอิง
+ควรสร้าง test set ภาษาไทยที่มีโปรไฟล์จำลอง (รวมเคสปฏิเสธเงื่อนไข เช่น "ไม่ใช่คนไทย" และเคสภาษาอังกฤษ/พิมพ์ผิด) หลักฐานที่ควรค้นพบ และผลที่ผู้เชี่ยวชาญรับรอง แล้ววัด retrieval hit rate, Precision, Recall, F1-score ของสถานะ และความถูกต้องของแหล่งอ้างอิง
 
 ## API
 
@@ -151,6 +138,8 @@ Swagger UI: `http://127.0.0.1:8000/docs`
 }
 ```
 
+หมายเหตุ: `sources[].title` มีอยู่ใน schema แต่ frontend ปัจจุบันไม่ได้เอาไปแสดง (ชื่อสิทธิหลักแสดงจาก `benefits[].name` แทนอยู่แล้ว)
+
 หากข้อความนอกขอบเขต (ไม่ผ่าน `is_rights_query`) หรือไม่มีสิทธิใดผ่าน `SCOPE_FLOOR` เลย API ตอบ `200` พร้อม `benefits: []` และคำแนะนำ โดยไม่เรียก LLM
 
 ### `POST /analyze-more-rights`
@@ -163,22 +152,7 @@ Swagger UI: `http://127.0.0.1:8000/docs`
 
 response ใช้ schema เดียวกับ `/analyze-rights` และ `additional_benefits` จะว่าง
 
-### `POST /check-rights` — flow แบบฟอร์มเดิม
-
-รับ profile ที่มีโครงสร้างและคืน candidate จาก RAG โดยไม่เรียก LLM (ไม่มีการกรองใดๆ คืนครบทุกสิทธิ active ที่จัดอันดับแล้ว)
-
-```json
-{
-  "age": 65, "nationality": "thai", "social_security": "none",
-  "employment": "unemployed", "children": "0", "disability": "yes"
-}
-```
-
-ค่าที่รับได้: `nationality` = `thai|other`, `social_security` = `33|39|40|none`, `employment` = `employed|self|unemployed`, `children` = `0|1|2`, `disability` = `yes|no`; ทุก field เป็น optional และ `age` ต้อง 0–120
-
-### `POST /explain` — flow แบบฟอร์มเดิมแบบ streaming
-
-รับ body แบบเดียวกับ `/check-rights` แล้วตอบเป็น Server-Sent Events (`text/event-stream`) ด้วย event `data:` และจบด้วย `data: [DONE]` — ใช้ `benefit.detail` (document เต็ม) เป็นหลักฐานให้ LLM ต่างจาก `/analyze-rights`
+> **ข้อควรทราบเรื่องประสิทธิภาพ**: endpoint นี้เรียก `rag.retrieve_for_text()` ใหม่ทั้งหมด (embed query + เอกสารทุกฉบับในคลังอีกครั้ง) แล้วค่อย filter เอาเฉพาะ `benefit_slugs` ที่ร้องขอทีหลัง ทั้งที่รู้ slug อยู่แล้วตั้งแต่ต้น เป็นการคำนวณซ้ำที่ไม่จำเป็น — ยังไม่กระทบผู้ใช้เพราะปัจจุบัน endpoint นี้แทบไม่เคยถูกเรียกจริง (catalogue มีแค่ 8 รายการ ต่ำกว่า `RAG_LLM_RESULT_LIMIT`) แต่ควรแก้เป็นดึง record ตาม slug ตรงๆ จาก database ก่อนคลังข้อมูลจะโตเกิน limit
 
 ### `GET /stats`
 
@@ -200,23 +174,24 @@ response ใช้ schema เดียวกับ `/analyze-rights` และ `
 
 | ตาราง | หน้าที่ | ใครอ่านใช้ |
 | --- | --- | --- |
-| `benefits` | สิทธิหลัก: slug, หมวด, เอกสาร, ติดต่อ, URL, `short_description`, `benefit_details`, `active` | `/analyze-rights` อ่าน `short_description`+`benefit_details`; ทุก flow อ่านชื่อ/เอกสาร/ติดต่อ |
-| `benefit_documents` | หลักฐานดิบสำหรับ RAG: title, `content`, URL, `embedding`, `active` | ใช้จัดอันดับ (ทุก flow) และเป็นหลักฐานให้ LLM เฉพาะ `/explain` เท่านั้น |
-| `inquiry_log` | profile แบบฟอร์มหรือ `text_length` และรายชื่อสิทธิที่แสดง | analytics (`/stats`) |
-| `ai_response_log` | profile/`text_length`, สิทธิ, summary/response และเวลา AI ตอบ (ms) | analytics (`/stats`) |
+| `benefits` | สิทธิหลัก: slug, หมวด, เอกสาร, ติดต่อ, URL, `short_description`, `benefit_details`, `active` | `llm.analyze_rights()` อ่าน `short_description`+`benefit_details` โดยตรง — เป็นข้อมูลเดียวที่ LLM เห็นจริง |
+| `benefit_documents` | หลักฐานดิบสำหรับ RAG: title, `content`, URL, `embedding`, `active` | `content`/`embedding` ใช้จัดอันดับความใกล้เคียงเท่านั้น (ไม่ได้ถูกส่งให้ LLM อ่านต่ออีกแล้ว — ดูหมายเหตุด้านล่าง) |
+| `inquiry_log` | `text_length` และรายชื่อสิทธิที่แสดง | analytics (`/stats`) |
+| `ai_response_log` | `text_length`, สิทธิ, summary/response และเวลา AI ตอบ (ms) | analytics (`/stats`) |
 
-**ความสัมพันธ์ระหว่าง field กับแต่ละ flow (สำคัญตอนแก้เงื่อนไขสิทธิ):**
+**ความสัมพันธ์ระหว่าง field กับสิ่งที่ LLM เห็นจริง (สำคัญตอนแก้เงื่อนไขสิทธิ):**
 
 ```text
 benefits.short_description ─┐
-benefits.benefit_details    ├─► /analyze-rights, /analyze-more-rights (llm.analyze_rights)
+benefits.benefit_details    ├─► ส่งเข้า prompt ของ llm.analyze_rights() โดยตรง — สิ่งเดียวที่ LLM "อ่าน" ได้จริง
                              │
-benefit_documents.content   ─────► /check-rights, /explain (llm.explain_benefits, ผ่าน b.detail)
+benefit_documents.content   ─────► ใช้แค่คำนวณ embedding เพื่อจัดอันดับสิทธิ (retrieve_for_text)
+                             │      เนื้อหาไม่ถูกส่งต่อให้ LLM อ่านอีกต่อไป (เดิมส่งผ่าน b.detail ให้ /explain ซึ่งถูกลบไปแล้ว)
                              │
-benefit_documents.embedding ─────► ใช้จัดอันดับความใกล้เคียงในทั้งสอง flow (retrieve_candidates ใช้ keyword score, retrieve_for_text ใช้ cosine similarity)
+benefit_documents.embedding ─────► cosine similarity ใน retrieve_for_text() (สร้าง/cache อัตโนมัติเมื่อค้นครั้งแรก)
 ```
 
-แก้เงื่อนไขสิทธิ (เช่น เพิ่มเกณฑ์สัญชาติ) แล้วอยากให้**ทุก flow เห็นเงื่อนไขนั้น** ต้องแก้ทั้ง `short_description`/`benefit_details` และ `benefit_documents.content` — แก้แค่ field เดียวจะทำให้อีก flow มองไม่เห็นเงื่อนไขนั้นเลย
+แก้เงื่อนไขสิทธิที่ต้องการให้ **LLM เห็นจริง** (เช่น เพิ่มเกณฑ์สัญชาติ) ต้องแก้ที่ `benefits.short_description` หรือ `benefits.benefit_details` เท่านั้น — แก้แค่ `benefit_documents.content` เพียงอย่างเดียวจะไม่มีผลอะไรกับสิ่งที่ LLM เห็น เพราะ `content` มีผลแค่กับการจัดอันดับผ่าน embedding ไม่ใช่เนื้อหาที่ส่งเข้า prompt
 
 เมื่อฐานข้อมูลว่าง `rag_catalog.py` จะ seed สิทธิเริ่มต้น 8 รายการเพียงครั้งเดียว: เบี้ยยังชีพผู้สูงอายุ เบี้ยความพิการ สวัสดิการแห่งรัฐ ประกันสังคมมาตรา 33/39/40 เงินอุดหนุนเด็กแรกเกิด และบัตรทอง **การแก้ `rag_catalog.py` ภายหลังจะไม่เขียนทับข้อมูลใน DB ที่ seed ไปแล้ว** — ต้อง `UPDATE` ผ่าน SQL โดยตรง หรือลบ record เดิมแล้วให้ seed ใหม่เท่านั้น
 
@@ -224,15 +199,23 @@ benefit_documents.embedding ─────► ใช้จัดอันดั
 
 ```text
 Backend/
-├── main.py         # FastAPI routes, schemas, CORS, rate limiting
+├── main.py         # FastAPI routes (/health, /analyze-rights, /analyze-more-rights, /stats), schemas, CORS, rate limiting
 ├── rag.py          # retrieval, cosine similarity, scope-floor gate, keyword fallback
-├── llm.py          # OpenAI Embeddings / Chat Completions และ prompt
+├── llm.py          # OpenAI Embeddings / Chat Completions และ prompt (analyze_rights)
 ├── database.py     # models, lifecycle, seed, analytics
 ├── rag_catalog.py  # ข้อมูลเริ่มต้นเมื่อ database ว่าง (seed ครั้งเดียว)
 ├── models.py       # domain models ที่ใช้ร่วมกัน
 ├── run.py          # Uvicorn development server
 ├── requirements.txt
 └── README.md
+
+Frontend/
+├── home.html       # หน้าแรก
+├── input.html      # ฟอร์มกรอกข้อความอิสระ + แดชบอร์ดสถิติ
+├── result.html     # หน้าแสดงผลวิเคราะห์
+├── app.js          # ค่ากลางที่ใช้ร่วมกัน (API_BASE) เท่านั้น
+├── input.js        # logic เฉพาะ input.html (submit, dashboard)
+└── result.js       # logic เฉพาะ result.html (เรียก /analyze-rights ฯลฯ, render ผล)
 ```
 
 ## การติดตั้ง
@@ -277,14 +260,14 @@ API อยู่ที่ `http://127.0.0.1:8000`; `run.py` เปิด reload 
 
 เปิด `Frontend` ผ่าน Live Server แล้วเข้า `http://localhost:5500/home.html` ค่า CORS เริ่มต้นรองรับ `localhost:5500` และ `127.0.0.1:5500`; deployment คนละ origin ต้องเพิ่ม URL ใน `ALLOWED_ORIGINS`
 
-## การดูแลรักษา
+Frontend เรียก API ผ่านค่าคงที่ `API_BASE` ที่ประกาศไว้ที่เดียวใน `Frontend/app.js` — เปลี่ยน URL ตอน deploy จริงแก้ที่ไฟล์นี้ไฟล์เดียวพอ
 
 ### คลังความรู้
 
 หลัง seed ครั้งแรก ให้ดูแลผ่าน PostgreSQL เป็นหลัก (แก้ `rag_catalog.py` จะไม่มีผลกับ DB ที่ seed ไปแล้ว)
 
-1. เพิ่ม/แก้ `benefits.short_description` และ `benefits.benefit_details` เพื่อปรับเงื่อนไขที่ `/analyze-rights` มองเห็น — **ทุกเงื่อนไขคัดออกที่สำคัญ (โดยเฉพาะสัญชาติ) ต้องเขียนตรงๆ ในสองฟิลด์นี้** ไม่งั้น LLM จะไม่มีหลักฐานตัดสิน `not_eligible`
-2. เพิ่ม/แก้ `benefit_documents.content` ด้วยเงื่อนไขชัดเจนแบบเดียวกัน สำหรับ flow `/explain`
+1. เพิ่ม/แก้ `benefits.short_description` และ `benefits.benefit_details` เพื่อปรับเงื่อนไขที่ LLM มองเห็น — **ทุกเงื่อนไขคัดออกที่สำคัญ (โดยเฉพาะสัญชาติ) ต้องเขียนตรงๆ ในสองฟิลด์นี้** ไม่งั้น LLM จะไม่มีหลักฐานตัดสิน `not_eligible`
+2. เพิ่ม/แก้ `benefit_documents.content` เมื่อต้องการปรับ**การจัดอันดับ**ความเกี่ยวข้อง (ไม่ใช่เพื่อให้ LLM เห็นเนื้อหาเพิ่ม — ดูหัวข้อฐานข้อมูล)
 3. ตั้ง `embedding = NULL` หลังแก้ `content` เพื่อให้ระบบสร้าง vector ใหม่ครั้งถัดไป
 4. ตั้ง `active = false` สำหรับสิทธิหรือเอกสารที่ไม่ต้องการให้ค้นพบ แทนการลบประวัติ
 5. ทดสอบทั้งเคสปกติและเคส**ปฏิเสธเงื่อนไข** (เช่น "ไม่ใช่คนไทย", "ไม่มีบุตร") ก่อนเผยแพร่การเปลี่ยนแปลง เพื่อยืนยันว่า LLM จัดเป็น `not_eligible` ถูกต้อง ไม่ใช่ `needs_verification`
@@ -294,15 +277,18 @@ API อยู่ที่ `http://127.0.0.1:8000`; `run.py` เปิด reload 
 - ตรวจ `/health` และ `/stats` เพื่อติดตามสถานะ ปริมาณงาน เวลา AI ตอบ และสิทธิที่พบบ่อย
 - ติดตาม log สำหรับข้อผิดพลาด OpenAI, PostgreSQL และ `429`
 - `RAG_SCOPE_FLOOR` ปรับจาก test set ที่มี label: ลดเกณฑ์เพิ่ม recall แต่เสี่ยงให้ query นอกเรื่องหลุดผ่าน; เพิ่มเกณฑ์มีผลตรงกันข้าม — ปรับเฉพาะจุดนี้จุดเดียว ไม่ต้อง tune ต่อสิทธิ
-- ถ้าคลังโตเกิน ~10-20 รายการ ทบทวนว่ายังเหมาะจะส่งทุกสิทธิให้ LLM แบบไม่กรองอยู่หรือไม่ (ตอนนี้ตั้งใจทำแบบนี้เพราะคลังมีแค่ 8 รายการ)
+- ถ้าคลังโตเกิน ~10-20 รายการ ทบทวนว่ายังเหมาะจะส่งทุกสิทธิให้ LLM แบบไม่กรองอยู่หรือไม่ (ตอนนี้ตั้งใจทำแบบนี้เพราะคลังมีแค่ 8 รายการ) และทบทวน `/analyze-more-rights` ที่ปัจจุบัน re-run retrieval ทั้งหมดทุกครั้ง (ดูหัวข้อ API)
 - หลาย worker/instance ควรย้าย rate limit ไป Redis หรือ API gateway และเก็บ secret ใน secret manager
 - สำรองฐานข้อมูล จำกัดสิทธิ์บัญชี PostgreSQL และทบทวน URL/เกณฑ์สิทธิเป็นรอบ
 
 ## แนวทางพัฒนาต่อ
 
+- ตัดสินใจชะตากรรมของ `Benefit.detail`: ต่อสายให้ `llm.analyze_rights()` อ่านเนื้อหาเอกสารดิบด้วย (ตามที่ retrieval คำนวณไว้อยู่แล้ว) หรือลดงาน embed เอกสารระดับ document ลงถ้าจะไม่ใช้ต่อ
+- แก้ `/analyze-more-rights` ให้ดึง record ตาม `slug` ตรงๆ จาก database แทนการรัน `retrieve_for_text()` ใหม่ทั้งหมด
+- รวมข้อความ `coverage_warning`/`summary` fallback ที่กระจายอยู่ `main.py` และ `llm.py` ไว้เป็นค่าคงที่ส่วนกลาง (เช่นไฟล์ `messages.py`) เพื่อคุมโทนให้ตรงกันง่ายขึ้น
+- ปรับ `is_rights_query()` ให้แยกแยะ "นอกเรื่องจริง" กับ "พิมพ์ผิด" กับ "ภาษาอังกฤษที่เกี่ยวข้อง" ออกจากกัน แทนที่จะตกไปเป็นข้อความ "นอกขอบเขต" เดียวกันหมด
 - เพิ่ม Alembic migrations แทน `create_all`/`ALTER TABLE` ระหว่าง startup
 - เพิ่ม metadata เอกสาร: วันที่มีผลบังคับใช้ จังหวัด หน่วยงาน และวันที่ตรวจทาน
 - เพิ่ม automated evaluation สำหรับ retrieval, การเลือกสถานะ (โดยเฉพาะเคส negation) และความถูกต้องของแหล่งอ้างอิง
-- รวม `short_description`/`benefit_details` กับ `benefit_documents.content` ให้เหลือแหล่งความจริงเดียว ลดความเสี่ยงที่สอง flow จะเห็นเงื่อนไขไม่ตรงกัน
 - ใช้ `pgvector` หรือ vector store เมื่อจำนวนเอกสารเพิ่มขึ้นจนไม่เหมาะกับการส่งทุกสิทธิให้ LLM แบบไม่กรอง
 - เพิ่มการ redaction/ตรวจจับข้อมูลอ่อนไหวก่อนเรียก AI
