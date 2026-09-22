@@ -150,6 +150,22 @@ async function loadDashboard() {
   }
 }
 
+/* ── Load AI-generated insight over usage data (separate call from loadDashboard
+   so a slow/unavailable LLM never blocks the plain numeric stats) ── */
+async function loadInsight() {
+  const el = document.getElementById("stat-insight");
+  if (!el) return;
+  try {
+    const res = await fetch(`${API_BASE}/stats/insight`);
+    if (!res.ok) throw new Error("insight failed");
+    const data = await res.json();
+    el.textContent = data.insight || "ยังไม่มีข้อมูลเพียงพอสำหรับสรุปในตอนนี้";
+  } catch (e) {
+    el.textContent = "ไม่สามารถโหลดสรุปเชิงลึกได้ในขณะนี้";
+    console.warn("Insight unavailable:", e);
+  }
+}
+
 /* ── Restore ค่าเดิม ── */
 window.addEventListener('DOMContentLoaded', () => {
   const text = sessionStorage.getItem('userProfileText');
@@ -159,4 +175,5 @@ window.addEventListener('DOMContentLoaded', () => {
     markFilled(input);
   }
   loadDashboard();
+  loadInsight();
 });

@@ -211,6 +211,13 @@
       100%{ background-position: -200% 0; }
     }
 
+    .insight-text {
+      font-size: 0.88rem;
+      color: var(--text-sub);
+      line-height: 1.75;
+      margin: 0;
+    }
+
     @media (max-width: 576px) {
       .content-area { padding: 20px 16px; }
       .step-line { max-width: 40px; }
@@ -285,6 +292,12 @@
           <div class="dash-card-title">สิทธิที่ได้รับบ่อยที่สุด</div>
           <div id="chart-skeleton" class="dash-skeleton"></div>
           <canvas id="benefitChart" style="display:none; max-height:180px;"></canvas>
+        </div>
+
+        <!-- AI-generated insight over usage data -->
+        <div class="dash-card" style="grid-column: 1 / -1;">
+          <div class="dash-card-title">สรุปเชิงลึกจาก AI</div>
+          <p id="stat-insight" class="insight-text">กำลังวิเคราะห์แนวโน้มการใช้งาน...</p>
         </div>
 
       </div>

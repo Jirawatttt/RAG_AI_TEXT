@@ -289,6 +289,21 @@ async def log_ai_response(
 # Read functions — ใช้ตอน GET /stats
 # ---------------------------------------------------------------------------
 
+async def get_recent_summaries(limit: int = 20) -> list[str]:
+    """Recent AI-response summaries for the /stats/insight endpoint.
+
+    ai_response_log stores no PII by design (see InquiryLog docstring), so
+    this is safe to hand to an LLM for a dashboard-facing summary.
+    """
+    async with AsyncSessionLocal() as session:
+        rows = (await session.execute(
+            select(AIResponseLog.ai_response)
+            .order_by(AIResponseLog.created_at.desc())
+            .limit(limit)
+        )).scalars().all()
+    return list(rows)
+
+
 async def get_stats() -> dict:
     """
     ดึงสถิติการใช้งานสำหรับ present อาจารย์

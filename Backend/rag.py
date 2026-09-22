@@ -1,6 +1,7 @@
 """RAG retrieval for benefit information, with no rule-based eligibility check."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 from math import sqrt
@@ -8,6 +9,8 @@ from math import sqrt
 import database
 import llm
 from models import Benefit
+
+logger = logging.getLogger(__name__)
 
 
 # With a catalogue this small (currently 8 benefits), retrieval only needs
@@ -66,6 +69,23 @@ def is_rights_query(text: str) -> bool:
     return any(term in normalized for term in _RIGHTS_TERMS)
 
 
+async def is_in_scope(text: str) -> bool:
+    """Scope gate used by the routes: the AI decides directly, every call.
+
+    Keyword matching is no longer the decision-maker — a fixed list can never
+    cover slang, typos, or a status described without ever saying
+    "สิทธิ"/"สวัสดิการ", while the model can judge intent. is_rights_query()
+    is kept only as an emergency fallback for when the AI call itself fails
+    (no API key, network error, bad response) — not as a first-pass filter —
+    so a full OpenAI outage doesn't leave the scope gate with no answer at all.
+    """
+    try:
+        return await llm.classify_scope(text)
+    except Exception as exc:
+        logger.warning("Scope classification failed, falling back to keyword check: %s", exc)
+        return is_rights_query(text)
+
+
 def _cosine(left: list[float], right: list[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
@@ -85,7 +105,12 @@ async def retrieve_for_text(user_text: str, limit: int = DEFAULT_DISCOVERY_RESUL
 
     used_embeddings = True
     try:
-        query_embedding = await llm.embed_text(query)
+        # Distill free-form/emotional user text into a short, fact-only query
+        # before embedding it. rewrite_query() never raises — on any failure
+        # it returns the original text — so this can only help or be a no-op,
+        # never make retrieval worse than embedding the raw text directly.
+        search_query = await llm.rewrite_query(query)
+        query_embedding = await llm.embed_text(search_query)
         for item in catalogue:
             scored_documents = []
             for document in item.documents:

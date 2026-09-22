@@ -133,7 +133,7 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
     if not check_rate_limit(request.client.host):
         raise HTTPException(status_code=429, detail="Too many requests")
 
-    if not rag.is_rights_query(payload.text):
+    if not await rag.is_in_scope(payload.text):
         return TextAnalysisResponse(**_empty_analysis(
             "ข้อความนี้ยังไม่อยู่ในขอบเขตการวิเคราะห์สิทธิประโยชน์ภาครัฐหรือมีคำผิด กรุณาตรวจสอบคำถามหรือระบุข้อมูลเกี่ยวกับสิทธิ สวัสดิการ หรือสถานะของคุณเพิ่มเติม"
         ))
@@ -180,7 +180,7 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
     """Summarize deferred RAG matches only after the user asks to see them."""
     if not check_rate_limit(request.client.host):
         raise HTTPException(status_code=429, detail="Too many requests")
-    if not rag.is_rights_query(payload.text):
+    if not await rag.is_in_scope(payload.text):
         raise HTTPException(status_code=422, detail="ข้อความอยู่นอกขอบเขตการวิเคราะห์สิทธิ")
 
     candidates = await rag.retrieve_for_text(payload.text)
@@ -208,3 +208,22 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Stats failed: {e}")
         raise HTTPException(status_code=500, detail="ไม่สามารถดึงข้อมูลได้")
+
+
+@app.get("/stats/insight", tags=["Analytics"])
+async def get_stats_insight():
+    """AI-generated narrative over already-logged usage data, for the admin
+    dashboard only. Kept as its own endpoint (rather than folded into /stats)
+    so the plain numeric stats stay fast and never depend on the LLM being
+    available; the dashboard calls this separately and can fail silently.
+    """
+    try:
+        stats = await database.get_stats()
+        recent_summaries = await database.get_recent_summaries()
+        insight = await llm.generate_stats_insight(stats, recent_summaries)
+        return {"insight": insight}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"Stats insight failed: {exc}")
+        raise HTTPException(status_code=500, detail="ไม่สามารถสร้างสรุปเชิงลึกได้")

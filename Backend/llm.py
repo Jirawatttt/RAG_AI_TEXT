@@ -39,6 +39,85 @@ async def embed_text(text: str) -> list[float]:
     return response.data[0].embedding
 
 
+async def classify_scope(user_text: str) -> bool:
+    """LLM fallback for rag.is_rights_query().
+
+    Only called when the cheap keyword gate does NOT match, so this costs one
+    extra call at most per query — zero in the common case where a keyword
+    already matched. It exists to catch phrasing the fixed keyword list
+    misses (typos, slang, indirect descriptions of a status) without turning
+    the whole scope gate into an LLM call on every request.
+    """
+    if client is None:
+        raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
+    prompt = f"""ข้อความต่อไปนี้เกี่ยวข้องกับสิทธิประโยชน์ภาครัฐไทยหรือไม่ (เช่น เบี้ยยังชีพ สวัสดิการ ประกันสังคม บัตรสวัสดิการแห่งรัฐ สิทธิรักษาพยาบาล เงินอุดหนุนเด็ก) หรือกล่าวถึงสถานะส่วนตัวที่อาจเชื่อมโยงกับสิทธิเหล่านี้ (อายุ สัญชาติ การมีงานทำ รายได้ ครอบครัว ความพิการ การมี/ไม่มีประกันสังคม) แม้จะไม่ได้ใช้คำว่า "สิทธิ" หรือ "สวัสดิการ" ตรงๆ ก็ตาม
+
+ข้อความ: "{user_text}"
+
+คืน JSON เท่านั้นตาม schema นี้: {{"in_scope": true หรือ false}}"""
+    try:
+        raw = await _call_model(MODEL, prompt)
+        return bool(json.loads(raw).get("in_scope", False))
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        # Malformed response from the model — safer to treat as out of scope
+        # than to let a parsing quirk let anything through.
+        return False
+
+
+async def rewrite_query(user_text: str) -> str:
+    """Distill free-form user text into a short, fact-only query before it is
+    embedded for retrieval.
+
+    Never raises: on any failure (no API key, API error, bad JSON) it falls
+    back to the original text, so retrieval quality can only improve or stay
+    the same relative to embedding the raw text directly.
+    """
+    if client is None:
+        return user_text
+    prompt = f"""แปลงข้อความของผู้ใช้ด้านล่างให้เป็นข้อความค้นหาสั้นๆ เน้นเฉพาะข้อเท็จจริงเชิงสถานะที่เกี่ยวกับสิทธิประโยชน์ภาครัฐ (อายุ สัญชาติ อาชีพ ประกันสังคม รายได้ ความพิการ บุตร ทะเบียนบ้าน ฯลฯ) ตัดคำฟุ่มเฟือย น้ำเสียง หรืออารมณ์ออก ห้ามเพิ่มข้อมูลที่ผู้ใช้ไม่ได้พูด ห้ามตอบคำถามหรือวิเคราะห์สิทธิ
+
+ข้อความผู้ใช้: "{user_text}"
+
+คืน JSON เท่านั้นตาม schema นี้: {{"query": "ข้อความค้นหาที่กระชับ"}}"""
+    try:
+        raw = await _call_model(MODEL, prompt)
+        query = (json.loads(raw).get("query") or "").strip()
+        return query or user_text
+    except Exception:
+        logger.warning("Query rewrite failed; falling back to the raw query text")
+        return user_text
+
+
+async def generate_stats_insight(stats: dict, recent_summaries: list[str]) -> str:
+    """Turn already-logged usage stats and a sample of recent AI summaries into
+    a short Thai narrative for the admin dashboard.
+
+    Read-only over data that is already stored in ai_response_log/inquiry_log;
+    it never touches the benefits catalogue and never runs during a user's
+    own /analyze-rights request, so it cannot affect what any user sees.
+    """
+    if client is None:
+        raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
+    top_line = ", ".join(
+        f"{row['benefit']} ({row['count']} ครั้ง)" for row in stats.get("top_benefits", [])
+    ) or "ไม่มีข้อมูล"
+    samples = "\n".join(f"- {summary[:200]}" for summary in recent_summaries[:10]) or "ไม่มีข้อมูล"
+    prompt = f"""นี่คือสถิติการใช้งานระบบตรวจสอบสิทธิประโยชน์ภาครัฐเบื้องต้น:
+จำนวนการตรวจสอบทั้งหมด: {stats.get('total_inquiries', 0)}
+สิทธิเฉลี่ยที่พบต่อคน: {stats.get('avg_benefits', 0)}
+สิทธิที่พบบ่อยที่สุด: {top_line}
+
+ตัวอย่างสรุปคำตอบ AI ล่าสุด (ไม่มีข้อมูลส่วนตัวของผู้ใช้ปะปนอยู่):
+{samples}
+
+เขียนย่อหน้าสั้นๆ ไม่เกิน 4 ประโยค ภาษาไทย สรุป insight ที่เป็นประโยชน์สำหรับผู้ดูแลระบบ เช่น แนวโน้มความต้องการของผู้ใช้ หรือสิทธิที่ถูกถามบ่อยจนควรให้ความสำคัญกับความถูกต้องของข้อมูลเป็นพิเศษ ห้ามอ้างอิงหรือสมมติข้อมูลส่วนตัวใดๆ ห้ามสรุปเกินจากข้อมูลที่ให้มา
+
+คืน JSON เท่านั้นตาม schema นี้: {{"insight": "..."}}"""
+    raw = await _call_model(MODEL, prompt)
+    data = json.loads(raw)
+    return data.get("insight", "")
+
+
 async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
     """Use only retrieved catalogue evidence to produce a user-facing analysis."""
     if client is None:
