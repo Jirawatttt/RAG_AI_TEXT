@@ -67,20 +67,8 @@ function renderAnalysis(analysis) {
     ? `<section class="more-rights"><h3>สิทธิที่อาจเกี่ยวข้องเพิ่มเติม (${analysis.additional_benefits.length})</h3><p>พบรายการเพิ่มเติม คุณสามารถให้ AI สรุปรายละเอียดในรูปแบบเดียวกับผลหลักได้</p><button class="icon-btn" id="more-rights-btn" onclick="loadAdditionalRights()">ดูรายการเพิ่มเติม</button></section>`
     : "";
 
-  // แสดงฟอร์ม "ให้ข้อมูลเพิ่มเติม" เมื่อมีคำถามที่ต้องตรวจสอบ หรือมีสิทธิที่ยัง
-  // needs_verification อยู่ — กดส่งแล้วจะเอาข้อความเดิม+ใหม่ยิงเข้า /analyze-rights ซ้ำ
-  const needsMoreInfo = (analysis.follow_up_questions || []).length > 0
-    || (analysis.benefits || []).some(item => item.status === "needs_verification");
-  const followUp = needsMoreInfo ? `
-    <section class="rag-card follow-up-card">
-      <h3>ให้ข้อมูลเพิ่มเติมเพื่อให้ผลแม่นยำขึ้น</h3>
-      <p>พิมพ์ข้อมูลเพิ่มเติมตามคำถามด้านบน ระบบจะวิเคราะห์ใหม่โดยรวมข้อมูลเดิมกับข้อมูลใหม่</p>
-      <textarea id="follow-up-input" class="follow-up-textarea" placeholder="เช่น มีประกันสังคมมาตรา 39 และรายได้ครัวเรือนประมาณ 8,000 บาท/เดือน"></textarea>
-      <button class="icon-btn" id="follow-up-btn" onclick="submitFollowUp()">ส่งข้อมูลเพิ่มเติมและวิเคราะห์ใหม่</button>
-    </section>` : "";
-
   currentBenefits = analysis.benefits || [];
-  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">โปรดตรวจสอบคำถามของคุณ</p></div>'}${additional}${questions}${followUp}`;
+  container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">โปรดตรวจสอบคำถามของคุณ</p></div>'}${additional}${questions}`;
 
   const disclaimerEl = document.getElementById("disclaimer-text");
   if (disclaimerEl) {
@@ -116,31 +104,6 @@ async function runAnalysis(text) {
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
-  }
-}
-
-/* ── ส่งข้อมูลเพิ่มเติมที่ผู้ใช้พิมพ์ตอบคำถาม แล้ววิเคราะห์ใหม่ทั้งข้อความเดิม+ใหม่ ── */
-async function submitFollowUp() {
-  const textarea = document.getElementById("follow-up-input");
-  const extra = textarea?.value.trim() || "";
-  if (!extra) return;
-
-  const button = document.getElementById("follow-up-btn");
-  if (button) { button.disabled = true; button.textContent = "กำลังวิเคราะห์ข้อมูลเพิ่มเติม..."; }
-
-  const baseText = sessionStorage.getItem("userProfileText") || "";
-  // ต่อข้อความเดิมกับข้อมูลใหม่ที่ผู้ใช้เพิ่งพิมพ์ แล้วยิงเข้า endpoint เดิมซ้ำ
-  // (ไม่มี endpoint ใหม่ — /analyze-rights รับข้อความอิสระอยู่แล้ว)
-  const combinedText = `${baseText}\nข้อมูลเพิ่มเติม: ${extra}`.slice(0, 4000);
-
-  try {
-    const analysis = await runAnalysis(combinedText);
-    sessionStorage.setItem("userProfileText", combinedText);
-    renderAnalysis(analysis);
-  } catch (error) {
-    console.error("Follow-up analysis error:", error);
-    if (button) { button.disabled = false; button.textContent = "ลองส่งข้อมูลเพิ่มเติมอีกครั้ง"; }
-    alert(error.message || "ไม่สามารถวิเคราะห์ข้อมูลเพิ่มเติมได้");
   }
 }
 

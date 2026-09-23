@@ -53,12 +53,12 @@ _request_counts: dict[str, list[float]] = defaultdict(list)
 RATE_LIMIT_MAX    = 20
 RATE_LIMIT_WINDOW = 60
 # How many of the ranked candidates from retrieve_for_text() go to the LLM
-# immediately vs. get deferred behind the "load more" button. Defaults to
-# the same size as rag.DEFAULT_DISCOVERY_RESULT_LIMIT (10), so with the
-# current 8-benefit catalogue every relevant match is analyzed right away
-# and additional_benefits stays empty. If the catalogue grows past 10
-# later, lower this on purpose to bring back progressive disclosure.
-RAG_LLM_RESULT_LIMIT = int(os.getenv("RAG_LLM_RESULT_LIMIT", os.getenv("RAG_RESULT_LIMIT", "10")))
+# immediately (shown to the user right away) vs. get deferred behind the
+# "load more" button. Kept small on purpose so the LLM prompt — and its
+# token cost — stays constant no matter how large the benefit catalogue
+# grows (8 today, 100+ later): the LLM only ever sees the top N most
+# relevant matches, never the whole catalogue.
+RAG_LLM_RESULT_LIMIT = int(os.getenv("RAG_LLM_RESULT_LIMIT", os.getenv("RAG_RESULT_LIMIT", "3")))
 
 # ── /stats/insight cache ──
 # input.html calls this on every page load, unrelated to any one user's
@@ -188,23 +188,31 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
 
 @app.post("/analyze-more-rights", response_model=TextAnalysisResponse, tags=["Rights"])
 async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Request):
-    """Summarize deferred RAG matches only after the user asks to see them."""
+    """Explain deferred benefits the user asked to see, by slug.
+
+    Deliberately does NOT call rag.retrieve_for_text() again: the slugs
+    given here were already ranked once by the preceding /analyze-rights
+    call for this same text, and that ranking cannot change for the same
+    input. Re-running retrieval would pay for a second LLM query-rewrite
+    call and a second embedding call just to reproduce the same order —
+    so this looks the benefits up directly by slug instead (a plain DB
+    query, no LLM/embedding cost at all) and only spends an LLM call on
+    the one thing that does need it: writing the explanation.
+
+    No scope re-check either, for the same reason as before: this endpoint
+    is only reachable with a text that already passed prepare_query()'s
+    scope check in the preceding /analyze-rights call.
+    """
     if not check_rate_limit(request.client.host):
         raise HTTPException(status_code=429, detail="Too many requests")
-    # No scope re-check here: this endpoint is only reachable with a text
-    # that already passed prepare_query()'s scope check in the preceding
-    # /analyze-rights call for the same text — re-checking would be a
-    # redundant LLM call. Retrieval still needs to re-run (it isn't cached
-    # across requests) to resolve which candidates the requested slugs map to.
-    candidates = await rag.retrieve_for_text(payload.text)
-    allowed = {benefit.slug: benefit for benefit in candidates[RAG_LLM_RESULT_LIMIT:]}
-    if not all(slug in allowed for slug in payload.benefit_slugs):
-        raise HTTPException(status_code=422, detail="มีรายการสิทธิที่ไม่ได้อยู่ในผล RAG ของข้อความนี้")
+
+    benefits = await rag.lookup_benefits_by_slugs(payload.benefit_slugs)
+    found_slugs = {benefit.slug for benefit in benefits}
+    if not all(slug in found_slugs for slug in payload.benefit_slugs):
+        raise HTTPException(status_code=422, detail="มีรายการสิทธิที่ไม่พบในฐานข้อมูล")
 
     try:
-        analysis = await llm.analyze_rights(
-            payload.text, [allowed[slug] for slug in payload.benefit_slugs]
-        )
+        analysis = await llm.analyze_rights(payload.text, benefits)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:

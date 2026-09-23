@@ -26,7 +26,7 @@ Backend สำหรับเว็บแอปที่ช่วยวิเค
 ### Flow หลัก (`/analyze-rights`)
 
 ```text
-Frontend (result.html + result.js)
+Frontend (input.html + input.js)
   │ POST /analyze-rights { "text": "..." }
   ▼
 FastAPI (main.py): validate ความยาว, rate limit

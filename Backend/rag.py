@@ -158,15 +158,36 @@ async def retrieve_for_text(
         return []
 
     return [
-        Benefit(
-            name=item.name,
-            docs=item.docs,
-            contact=item.contact,
-            link=item.link,
-            detail="\n".join(document.content for document in documents),
-            short_description=item.short_description,
-            benefit_details=item.benefit_details,
-            slug=item.slug,
-        )
+        _to_benefit(item, documents)
         for _, item, documents in ranked[:limit]
     ]
+
+
+def _to_benefit(item, documents) -> Benefit:
+    """Build the LLM-facing Benefit from a catalogue item and the evidence
+    documents to attach to it. Shared by retrieve_for_text() (ranked results)
+    and lookup_benefits_by_slugs() (direct slug lookup, no ranking) so both
+    paths hand analyze_rights() the exact same shape of evidence.
+    """
+    return Benefit(
+        name=item.name,
+        docs=item.docs,
+        contact=item.contact,
+        link=item.link,
+        detail="\n".join(document.content for document in documents),
+        short_description=item.short_description,
+        benefit_details=item.benefit_details,
+        slug=item.slug,
+    )
+
+
+async def lookup_benefits_by_slugs(slugs: list[str]) -> list[Benefit]:
+    """Fetch specific benefits by slug for /analyze-more-rights.
+
+    Deliberately skips embedding + cosine ranking entirely: the slugs given
+    here were already ranked once by retrieve_for_text() in the preceding
+    /analyze-rights call, so re-ranking them here would just repeat an LLM
+    rewrite call and an embedding call for a result that can't change.
+    """
+    items = await database.get_benefits_by_slugs(slugs)
+    return [_to_benefit(item, list(item.documents)) for item in items]

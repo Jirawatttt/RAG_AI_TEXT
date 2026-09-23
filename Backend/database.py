@@ -234,6 +234,33 @@ async def load_rag_catalogue() -> list[CatalogueItem]:
     ]
 
 
+async def get_benefits_by_slugs(slugs: list[str]) -> list[CatalogueItem]:
+    """Fetch specific active benefits directly by slug — no embedding, no
+    cosine similarity, no re-ranking. Used by /analyze-more-rights so that
+    viewing benefits already ranked once by retrieve_for_text() never pays
+    for a second embedding+ranking pass.
+    """
+    if not slugs:
+        return []
+    async with AsyncSessionLocal() as session:
+        records = (await session.execute(
+            select(BenefitRecord).where(BenefitRecord.slug.in_(slugs), BenefitRecord.active.is_(True))
+        )).scalars().all()
+        if not records:
+            return []
+        ids = [record.id for record in records]
+        documents = (await session.execute(
+            select(BenefitDocument).where(BenefitDocument.benefit_id.in_(ids), BenefitDocument.active.is_(True))
+        )).scalars().all()
+    by_benefit_documents: dict[int, list] = {record.id: [] for record in records}
+    for document in documents:
+        by_benefit_documents[document.benefit_id].append(document)
+    return [
+        CatalogueItem(record, by_benefit_documents[record.id])
+        for record in records
+    ]
+
+
 async def save_document_embedding(document_id: int, embedding: list[float]) -> None:
     async with AsyncSessionLocal() as session:
         document = await session.get(BenefitDocument, document_id)
