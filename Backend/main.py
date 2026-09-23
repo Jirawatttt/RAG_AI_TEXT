@@ -60,6 +60,14 @@ RATE_LIMIT_WINDOW = 60
 # later, lower this on purpose to bring back progressive disclosure.
 RAG_LLM_RESULT_LIMIT = int(os.getenv("RAG_LLM_RESULT_LIMIT", os.getenv("RAG_RESULT_LIMIT", "10")))
 
+# ── /stats/insight cache ──
+# input.html calls this on every page load, unrelated to any one user's
+# analysis, so without a cache it would fire an LLM call per visit. Serving a
+# cached value for INSIGHT_CACHE_SECONDS keeps the total cost independent of
+# how many people open the dashboard.
+_insight_cache: dict = {"insight": None, "expires_at": 0.0}
+INSIGHT_CACHE_SECONDS = int(os.getenv("INSIGHT_CACHE_SECONDS", "900"))
+
 def check_rate_limit(ip: str) -> bool:
     now = time.time()
     _request_counts[ip] = [t for t in _request_counts[ip] if now - t < RATE_LIMIT_WINDOW]
@@ -133,14 +141,17 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
     if not check_rate_limit(request.client.host):
         raise HTTPException(status_code=429, detail="Too many requests")
 
-    if not await rag.is_in_scope(payload.text):
+    # One LLM call does both the scope check and the query rewrite; the
+    # rewritten query is reused below instead of paying for a second call.
+    in_scope, search_query = await rag.prepare_query(payload.text)
+    if not in_scope:
         return TextAnalysisResponse(**_empty_analysis(
             "ข้อความนี้ยังไม่อยู่ในขอบเขตการวิเคราะห์สิทธิประโยชน์ภาครัฐหรือมีคำผิด กรุณาตรวจสอบคำถามหรือระบุข้อมูลเกี่ยวกับสิทธิ สวัสดิการ หรือสถานะของคุณเพิ่มเติม"
         ))
 
     started_at = time.time()
     try:
-        candidates = await rag.retrieve_for_text(payload.text)
+        candidates = await rag.retrieve_for_text(payload.text, search_query=search_query)
         if not candidates:
             return TextAnalysisResponse(**_empty_analysis(
                 "ข้อมูลยังไม่เพียงพอสำหรับค้นหาสิทธิที่เกี่ยวข้อง กรุณาระบุเพิ่ม เช่น สถานะงาน ประกันสังคม รายได้ หรือสัญชาติ"
@@ -180,9 +191,11 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
     """Summarize deferred RAG matches only after the user asks to see them."""
     if not check_rate_limit(request.client.host):
         raise HTTPException(status_code=429, detail="Too many requests")
-    if not await rag.is_in_scope(payload.text):
-        raise HTTPException(status_code=422, detail="ข้อความอยู่นอกขอบเขตการวิเคราะห์สิทธิ")
-
+    # No scope re-check here: this endpoint is only reachable with a text
+    # that already passed prepare_query()'s scope check in the preceding
+    # /analyze-rights call for the same text — re-checking would be a
+    # redundant LLM call. Retrieval still needs to re-run (it isn't cached
+    # across requests) to resolve which candidates the requested slugs map to.
     candidates = await rag.retrieve_for_text(payload.text)
     allowed = {benefit.slug: benefit for benefit in candidates[RAG_LLM_RESULT_LIMIT:]}
     if not all(slug in allowed for slug in payload.benefit_slugs):
@@ -216,11 +229,20 @@ async def get_stats_insight():
     dashboard only. Kept as its own endpoint (rather than folded into /stats)
     so the plain numeric stats stay fast and never depend on the LLM being
     available; the dashboard calls this separately and can fail silently.
+
+    Cached for INSIGHT_CACHE_SECONDS: this is called on every dashboard page
+    load (not per user analysis), so without a cache the LLM cost would scale
+    with page views instead of with actual usage changes.
     """
+    now = time.time()
+    if _insight_cache["insight"] is not None and now < _insight_cache["expires_at"]:
+        return {"insight": _insight_cache["insight"]}
     try:
         stats = await database.get_stats()
         recent_summaries = await database.get_recent_summaries()
         insight = await llm.generate_stats_insight(stats, recent_summaries)
+        _insight_cache["insight"] = insight
+        _insight_cache["expires_at"] = now + INSIGHT_CACHE_SECONDS
         return {"insight": insight}
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

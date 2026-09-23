@@ -64,12 +64,14 @@ class InquiryLog(Base):
     บันทึกทุกครั้งที่มีการตรวจสอบสิทธิ
 
     ไม่เก็บ PII (ชื่อ, เลขบัตร, ที่อยู่)
-    เก็บเฉพาะ profile เชิง demographic เพื่อ analytics
+    ตอนนี้ระบบรับข้อความอิสระ (ไม่ใช่ฟอร์มโครงสร้าง) จึง `profile` เก็บได้แค่
+    {"text_length": ...} เท่านั้น — คอลัมน์ JSONB นี้เผื่อไว้ให้เก็บ metadata
+    วิเคราะห์เพิ่มได้ในอนาคตถ้าต้องการ ไม่ได้แปลว่ามี demographic breakdown จริง
     """
     __tablename__ = "inquiry_log"
 
     id            = Column(Integer, primary_key=True, autoincrement=True)
-    # profile: {"age": 65, "nationality": "thai", "employment": "unemployed", ...}
+    # ปัจจุบันมีแค่ {"text_length": ...} — ดู main.py analytics_profile
     profile       = Column(JSONB, nullable=False)
     # benefits shown to the user after the AI/RAG assessment.
     benefits      = Column(JSONB, nullable=False)

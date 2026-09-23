@@ -69,21 +69,28 @@ def is_rights_query(text: str) -> bool:
     return any(term in normalized for term in _RIGHTS_TERMS)
 
 
-async def is_in_scope(text: str) -> bool:
-    """Scope gate used by the routes: the AI decides directly, every call.
+async def prepare_query(text: str) -> tuple[bool, str]:
+    """Scope gate + query rewrite in a single LLM round trip.
 
-    Keyword matching is no longer the decision-maker — a fixed list can never
-    cover slang, typos, or a status described without ever saying
-    "สิทธิ"/"สวัสดิการ", while the model can judge intent. is_rights_query()
-    is kept only as an emergency fallback for when the AI call itself fails
-    (no API key, network error, bad response) — not as a first-pass filter —
-    so a full OpenAI outage doesn't leave the scope gate with no answer at all.
+    Replaces two separate calls (a scope classifier and a query rewriter)
+    with llm.analyze_query(), which returns both in one response — the same
+    AI-first design as before (the model decides scope directly, not a
+    keyword list), just consolidated to cut the per-request LLM call count
+    in half. Returns (in_scope, search_query); search_query is only
+    meaningful when in_scope is True.
+
+    is_rights_query() is kept only as an emergency fallback for when the AI
+    call itself fails (no API key, network error, bad response) — not as a
+    first-pass filter — so a full OpenAI outage doesn't leave the scope gate
+    with no answer at all.
     """
+    normalized = normalize_text(text)
     try:
-        return await llm.classify_scope(text)
+        result = await llm.analyze_query(text)
+        return bool(result.get("in_scope")), (result.get("query") or "").strip() or normalized
     except Exception as exc:
-        logger.warning("Scope classification failed, falling back to keyword check: %s", exc)
-        return is_rights_query(text)
+        logger.warning("Scope+query analysis failed, falling back to keyword check: %s", exc)
+        return is_rights_query(text), normalized
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
@@ -93,11 +100,19 @@ def _cosine(left: list[float], right: list[float]) -> float:
     return sum(x * y for x, y in zip(left, right)) / denominator if denominator else 0.0
 
 
-async def retrieve_for_text(user_text: str, limit: int = DEFAULT_DISCOVERY_RESULT_LIMIT) -> list[Benefit]:
+async def retrieve_for_text(
+    user_text: str,
+    limit: int = DEFAULT_DISCOVERY_RESULT_LIMIT,
+    search_query: str | None = None,
+) -> list[Benefit]:
     """Retrieve the most relevant catalogue evidence from an unrestricted user query.
 
     This function performs retrieval only.  It never decides eligibility; that
     decision is made by the LLM from the returned source text.
+
+    search_query: an already-rewritten query (e.g. from prepare_query()) to
+    embed directly, skipping a second rewrite_query() call. If omitted, this
+    function rewrites the text itself — keeping this callable on its own.
     """
     query = normalize_text(user_text)
     catalogue = await database.load_rag_catalogue()
@@ -109,8 +124,8 @@ async def retrieve_for_text(user_text: str, limit: int = DEFAULT_DISCOVERY_RESUL
         # before embedding it. rewrite_query() never raises — on any failure
         # it returns the original text — so this can only help or be a no-op,
         # never make retrieval worse than embedding the raw text directly.
-        search_query = await llm.rewrite_query(query)
-        query_embedding = await llm.embed_text(search_query)
+        embed_query = search_query if search_query is not None else await llm.rewrite_query(query)
+        query_embedding = await llm.embed_text(embed_query)
         for item in catalogue:
             scored_documents = []
             for document in item.documents:
@@ -152,8 +167,6 @@ async def retrieve_for_text(user_text: str, limit: int = DEFAULT_DISCOVERY_RESUL
             short_description=item.short_description,
             benefit_details=item.benefit_details,
             slug=item.slug,
-            matched_conditions=[],
-            missing_conditions=[],
         )
         for _, item, documents in ranked[:limit]
     ]
