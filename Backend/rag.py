@@ -177,6 +177,7 @@ def _to_benefit(item, documents) -> Benefit:
         detail="\n".join(document.content for document in documents),
         short_description=item.short_description,
         benefit_details=item.benefit_details,
+        disqualifying_conditions=item.disqualifying_conditions,
         slug=item.slug,
     )
 

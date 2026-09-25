@@ -90,6 +90,9 @@ class SourceOut(BaseModel):
     contact: list[str] = []
     short_description: str = ""
     benefit_details: str = ""
+    # ไม่ได้ตั้งใจให้หน้าเว็บใช้ — เผื่อไว้ให้ debug/ตรวจสอบง่าย field เดียวกับ
+    # ที่ analyze_rights_endpoint ดึงไปผูก benefit_id ตอน log BenefitMatch
+    slug: str = ""
 
 
 class AnalysisBenefitOut(BaseModel):
@@ -115,6 +118,22 @@ class AdditionalBenefitOut(BaseModel):
 
 class MoreRightsRequest(TextAnalysisRequest):
     benefit_slugs: list[str] = Field(min_length=1, max_length=10)
+
+
+def _extract_benefit_hits(analysis: dict) -> list[tuple[str, str]]:
+    """แปลงผลจาก llm.analyze_rights() เป็น (slug, status) สำหรับ log_benefit_matches.
+
+    ใช้ slug จาก sources[0] (แหล่งอ้างอิงหลักของแต่ละสิทธิ) แทนชื่อ เพราะชื่อ
+    ที่ LLM ตอบกลับมาอาจสะกดคลาดเคลื่อนได้ ในขณะที่ slug มาจาก catalogue
+    โดยตรงและผูกกับ benefits.id ได้แม่นยำ 100%
+    """
+    hits = []
+    for item in analysis.get("benefits", []):
+        sources = item.get("sources") or []
+        slug = sources[0].get("slug") if sources else ""
+        if slug:
+            hits.append((slug, item.get("status", "needs_verification")))
+    return hits
 
 
 def _empty_analysis(summary: str) -> dict:
@@ -168,17 +187,17 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
         raise HTTPException(status_code=502, detail="ไม่สามารถวิเคราะห์ด้วย AI และ RAG ได้ในขณะนี้") from exc
 
     try:
-        benefit_names = [item["name"] for item in analysis["benefits"]]
         analytics_profile = {"text_length": len(payload.text)}
-        await database.log_inquiry(
-            profile_data=analytics_profile,
-            benefits_data=benefit_names,
+        inquiry_id = await database.log_inquiry(profile_data=analytics_profile)
+        await database.log_benefit_matches(
+            hits=_extract_benefit_hits(analysis),
+            source="primary",
+            inquiry_id=inquiry_id,
         )
         await database.log_ai_response(
-            profile_data=analytics_profile,
-            benefits_data=benefit_names,
             ai_response=analysis["summary"],
             elapsed_ms=int((time.time() - started_at) * 1000),
+            inquiry_id=inquiry_id,
         )
     except Exception as exc:
         logger.error("Text-analysis log failed: %s", exc)
@@ -211,6 +230,7 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
     if not all(slug in found_slugs for slug in payload.benefit_slugs):
         raise HTTPException(status_code=422, detail="มีรายการสิทธิที่ไม่พบในฐานข้อมูล")
 
+    started_at = time.time()
     try:
         analysis = await llm.analyze_rights(payload.text, benefits)
     except RuntimeError as exc:
@@ -219,6 +239,23 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
         logger.exception("Additional AI/RAG analysis failed")
         raise HTTPException(status_code=502, detail="ไม่สามารถวิเคราะห์สิทธิเพิ่มเติมได้ในขณะนี้") from exc
     analysis["additional_benefits"] = []
+
+    # เดิม endpoint นี้ไม่ log อะไรเลย ทำให้ "เวลา AI เฉลี่ย" และบาร์กราฟใน
+    # /stats ไม่เห็นการเรียก LLM กลุ่มนี้เลยแม้ user จะเห็นผลจริงหน้าจอ
+    # inquiry_id เป็น None เพราะยังไม่ได้ผูก session กับ /analyze-rights
+    # รอบแรก (ดูคอมเมนต์ BenefitMatch.inquiry_id ใน database.py)
+    try:
+        await database.log_benefit_matches(
+            hits=_extract_benefit_hits(analysis),
+            source="additional",
+        )
+        await database.log_ai_response(
+            ai_response=analysis["summary"],
+            elapsed_ms=int((time.time() - started_at) * 1000),
+        )
+    except Exception as exc:
+        logger.error("Additional-rights log failed: %s", exc)
+
     return TextAnalysisResponse(**analysis)
 
 
