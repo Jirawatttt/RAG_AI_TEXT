@@ -135,10 +135,10 @@ async def retrieve_for_text(
         for item in catalogue:
             scored_documents = []
             for document in item.documents:
-                embedding = document.embedding
+                embedding = document.Vector_benefit
                 if embedding is None:
-                    embedding = await llm.embed_text(document.content)
-                    await database.save_document_embedding(document.id, embedding)
+                    embedding = await llm.embed_text(document.Content_benefit)
+                    await database.save_document_embedding(document.Embedding_id, embedding)
                 scored_documents.append((_cosine(query_embedding, embedding), document))
             scored_documents.sort(key=lambda row: row[0], reverse=True)
             documents = [document for _, document in scored_documents[:2]]
@@ -150,7 +150,7 @@ async def retrieve_for_text(
         used_embeddings = False
         for item in catalogue:
             documents = list(item.documents)[:2]
-            evidence = "\n".join(document.content for document in documents)
+            evidence = "\n".join(document.Content_benefit for document in documents)
             ranked.append((_keyword_score(query, evidence), item, documents))
 
     ranked.sort(key=lambda row: row[0], reverse=True)
@@ -193,7 +193,7 @@ def _to_benefit(item, documents) -> Benefit:
         docs=item.docs,
         contact=item.contact,
         link=item.link,
-        detail="\n".join(document.content for document in documents),
+        detail="\n".join(document.Content_benefit for document in documents),
         short_description=item.short_description,
         benefit_details=item.benefit_details,
         disqualifying_conditions=item.disqualifying_conditions,
