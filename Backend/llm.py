@@ -86,34 +86,60 @@ async def rewrite_query(user_text: str) -> str:
         return user_text
 
 
-async def generate_stats_insight(stats: dict, recent_summaries: list[str]) -> str:
-    """Turn already-logged usage stats and a sample of recent AI summaries into
-    a short Thai narrative for the admin dashboard.
+async def suggest_input_fields(user_text: str, benefits: list[Benefit]) -> dict:
+    """AI Input Assistant — แนะนำ field เดียวที่ user อาจเพิ่มเพื่อช่วยให้ RAG
+    จับคู่สิทธิแม่นขึ้น และช่วยให้ analyze_rights() จัดสถานะ (likely_eligible/
+    needs_verification/not_eligible) ได้แม่นขึ้น แทนที่จะค้างที่
+    needs_verification เพราะข้อมูลไม่พอ
 
-    Read-only over data that is already stored in ai_response_log/inquiry_log;
-    it never touches the benefits catalogue and never runs during a user's
-    own /analyze-rights request, so it cannot affect what any user sees.
+    ตั้งใจแยกหน้าที่จาก analyze_rights() อย่างเด็ดขาด:
+    - ใช้เฉพาะ short_description/benefit_details เป็น context (เกณฑ์
+      คุณสมบัติทั่วไป) ไม่ใช้ disqualifying_conditions เลย เพราะ field นั้น
+      มีไว้ตัดสิน not_eligible ไม่ใช่แนะนำกรอกข้อมูล — ถ้าปนกันจะเสี่ยงให้ AI
+      หลุดไปพูดเรื่อง "อาจไม่ได้สิทธิเพราะ..." ซึ่งผิดขอบเขตของ feature นี้
+    - ไม่ตัดสิน/ยืนยันสิทธิ ไม่บังคับกรอก แนะนำได้ทีละ 1 ประเด็นเท่านั้น
+
+    เรียกจาก /suggest-input ใน main.py เท่านั้น ไม่เกี่ยวกับ /analyze-rights
     """
     if client is None:
         raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
-    top_line = ", ".join(
-        f"{row['benefit']} ({row['count']} ครั้ง)" for row in stats.get("top_benefits", [])
-    ) or "ไม่มีข้อมูล"
-    samples = "\n".join(f"- {summary[:200]}" for summary in recent_summaries[:10]) or "ไม่มีข้อมูล"
-    prompt = f"""นี่คือสถิติการใช้งานระบบตรวจสอบสิทธิประโยชน์ภาครัฐเบื้องต้น:
-จำนวนการตรวจสอบทั้งหมด: {stats.get('total_inquiries', 0)}
-สิทธิเฉลี่ยที่พบต่อคน: {stats.get('avg_benefits', 0)}
-สิทธิที่พบบ่อยที่สุด: {top_line}
 
-ตัวอย่างสรุปคำตอบ AI ล่าสุด (ไม่มีข้อมูลส่วนตัวของผู้ใช้ปะปนอยู่):
-{samples}
+    if not benefits:
+        return {"status": "sufficient", "suggestion": ""}
 
-เขียนย่อหน้าสั้นๆ ไม่เกิน 2 ประโยค ภาษาไทย สรุป insight ที่เป็นประโยชน์สำหรับผู้ใช้งานระบบห้ามอ้างอิงหรือสมมติข้อมูลส่วนตัวใดๆ ห้ามสรุปเกินจากข้อมูลที่ให้มา
+    benefit_context = "\n".join(
+        f"- {benefit.name}\n"
+        f"  คำอธิบายสิทธิ: {benefit.short_description or 'ไม่ระบุ'}\n"
+        f"  ผลประโยชน์: {benefit.benefit_details or 'ไม่ระบุ'}"
+        for benefit in benefits
+    )
 
-คืน JSON เท่านั้นตาม schema นี้: {{"insight": "..."}}"""
+    prompt = f"""คุณคือ AI Assistant ที่ช่วยแนะนำผู้ใช้เติมข้อมูลก่อนตรวจสอบสิทธิประโยชน์ภาครัฐ
+คำแนะนำของคุณมีเป้าหมายเดียว: ช่วยให้ข้อความของผู้ใช้มีรายละเอียดพอที่ระบบค้นหา (RAG)
+จับคู่สิทธิได้แม่นขึ้น และช่วยให้การจัดสถานะ (likely_eligible / needs_verification / not_eligible)
+ทำได้แม่นขึ้น แทนที่จะค้างอยู่ที่ "ข้อมูลไม่พอ"
+
+คำแนะนำของคุณเป็นทางเลือก ไม่ใช่การบังคับ และไม่ใช่การตัดสิน/ยืนยันสิทธิ
+
+ข้อความของผู้ใช้ปัจจุบัน:
+"{user_text}"
+
+ข้อมูลสิทธิที่ RAG พบว่าเกี่ยวข้องกับข้อความนี้:
+{benefit_context}
+
+พิจารณาว่า field ไหน "ขาดหายไป" จากข้อความผู้ใช้ ที่ตรงกับเกณฑ์คุณสมบัติของสิทธิเหล่านี้
+แล้วเลือกแนะนำ field เดียวที่สำคัญที่สุด (ที่จะช่วยให้การจัดสถานะชัดที่สุด)
+
+ห้ามเดาข้อมูลที่ผู้ใช้ไม่ได้พูด ห้ามตัดสิน/ยืนยันว่าผู้ใช้มีหรือไม่มีสิทธิ แนะนำได้ทีละ 1 ประเด็นเท่านั้น
+ถ้าข้อมูลที่มีเพียงพอต่อการจัดสถานะแล้ว ให้ตอบว่าเพียงพอ ห้ามหาเรื่องแนะนำเพิ่มโดยไม่มีเหตุผล
+
+คืน JSON เท่านั้นตาม schema นี้: {{"status": "sufficient หรือ can_add", "suggestion": "ข้อความแนะนำสั้นๆ ภาษาไทย หรือค่าว่างถ้า sufficient"}}"""
+
     raw = await _call_model(MODEL, prompt)
     data = json.loads(raw)
-    return data.get("insight", "")
+    status = data.get("status") if data.get("status") in ("sufficient", "can_add") else "sufficient"
+    suggestion = (data.get("suggestion") or "").strip() if status == "can_add" else ""
+    return {"status": status, "suggestion": suggestion}
 
 
 async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:

@@ -577,72 +577,51 @@ async def log_ai_response(
 # Read functions — ใช้ตอน GET /stats
 # ---------------------------------------------------------------------------
 
-async def get_recent_summaries(limit: int = 20) -> list[str]:
-    """Recent AI-response summaries for the /stats/insight endpoint.
-
-    Ai_response_log stores no PII by design (see InquiryLog docstring), so
-    this is safe to hand to an LLM for a dashboard-facing summary.
-
-    Ai_response_log ไม่มี created_at ของตัวเองแล้ว (เวลาดูได้จาก
-    Inquiry_log.Created_at ผ่าน Inquiry_id แทน) แต่ Inquiry_id เป็น
-    nullable — เรียงตาม Logai_id (autoincrement, insert ตามลำดับเวลาอยู่แล้ว)
-    แทน จึงยังได้ "ล่าสุดก่อน" โดยไม่ต้อง join กับ Inquiry_log
-    """
-    async with AsyncSessionLocal() as session:
-        rows = (await session.execute(
-            select(AIResponseLog.Ai_response)
-            .order_by(AIResponseLog.Logai_id.desc())
-            .limit(limit)
-        )).scalars().all()
-    return list(rows)
-
-
 async def get_stats() -> dict:
     """
     ดึงสถิติการใช้งานสำหรับ present อาจารย์
     คืนค่า:
-      - total_inquiries    : จำนวนครั้งที่มีการตรวจสอบ (นับ /analyze-rights)
-      - top_benefits       : สิทธิที่ "น่าจะได้" (likely_eligible) บ่อยที่สุด 5 อันดับ
-      - avg_benefits       : เฉลี่ยสิทธิ primary ที่แนะนำต่อครั้ง (ถูก cap ไว้ที่
-                              RAG_LLM_RESULT_LIMIT ใน main.py จึงมักใกล้ค่า cap นั้น)
-      - avg_ai_response_ms : เวลาตอบเฉลี่ยของ AI — รวมทั้ง /analyze-rights
-                              และ /analyze-more-rights เพราะทั้งคู่ log เข้า
-                              Ai_response_log ตารางเดียวกันแล้ว
+      - total_inquiries     : จำนวนครั้งที่มีการตรวจสอบ (นับแถวทั้งหมดใน
+                               Inquiry_log จาก field Log_id)
+      - avg_ai_response_sec : เวลาตอบเฉลี่ยของ AI เป็น "วินาที" — รวมทั้ง
+                               /analyze-rights และ /analyze-more-rights
+                               เพราะทั้งคู่ log เข้า Ai_response_log ตาราง
+                               เดียวกันแล้ว (เฉลี่ยจาก field Elapsed_ms หน่วย
+                               ms แล้วหารด้วย 1000)
+      - top_benefits        : สิทธิที่ถูกแนะนำมากที่สุด — รวมสถานะ
+                               likely_eligible (มีแนวโน้มได้รับสิทธิ) และ
+                               needs_verification (ต้องตรวจสอบเพิ่มเติม) 5
+                               อันดับแรก สำหรับ chart แนวตั้ง เฉพาะ
+                               Source='primary'
+      - category_breakdown  : หมวดหมู่สิทธิ (Benefits.Category_benefit) ที่
+                               ถูกตรวจสอบในส่วนหลัก (Source='primary') สำหรับ
+                               chart วงกลม
     """
     async with AsyncSessionLocal() as session:
 
-        # จำนวนครั้งที่ตรวจสอบทั้งหมด
+        # จำนวนครั้งที่ตรวจสอบทั้งหมด — นับ Log_id ทั้งหมดของ Inquiry_log
         total_result = await session.execute(
-            select(func.count()).select_from(InquiryLog)
+            select(func.count(InquiryLog.Log_id))
         )
         total_inquiries = total_result.scalar() or 0
 
-        # เวลาตอบ AI เฉลี่ย — รวมทุก endpoint ที่เรียก LLM
+        # เวลาตอบ AI เฉลี่ย — รวมทุก endpoint ที่เรียก LLM แล้วแปลง ms -> วินาที
         avg_ms_result = await session.execute(
             select(func.avg(AIResponseLog.Elapsed_ms))
         )
-        avg_ai_ms = round(float(avg_ms_result.scalar() or 0), 0)
-
-        # เฉลี่ยสิทธิ primary ต่อครั้ง — เฉพาะ source='primary' เพราะ
-        # 'additional' มาจากการกด "ดูเพิ่มเติม" ซึ่งไม่ใช่ทุกครั้งที่จะมี
-        avg_result = await session.execute(text('''
-            SELECT AVG(cnt) FROM (
-                SELECT "Inquiry_id", COUNT(*) AS cnt
-                FROM "Benefit_match"
-                WHERE "Source" = \'primary\' AND "Inquiry_id" IS NOT NULL
-                GROUP BY "Inquiry_id"
-            ) per_inquiry
-        '''))
-        avg_benefits = round(float(avg_result.scalar() or 0), 2)
+        avg_ai_sec = round(float(avg_ms_result.scalar() or 0) / 1000, 1)
 
         # สิทธิที่ระบบแนะนำบ่อย — join ตรงกับ Benefits.Name_benefit (ได้ชื่อ
-        # ล่าสุดเสมอ) และกรองเฉพาะ likely_eligible เพราะป้าย "ได้รับบ่อยที่สุด"
-        # ในหน้า dashboard ควรหมายถึงสิทธิที่ผ่านเกณฑ์จริง ไม่ใช่ทุกสถานะปนกัน
+        # ล่าสุดเสมอ) รวมทั้งสถานะ likely_eligible และ needs_verification
+        # เพราะทั้งสองสถานะถือเป็น "สิทธิที่ถูกแนะนำ" ให้ผู้ใช้ไปตรวจสอบต่อ
+        # เฉพาะ Source='primary' (มาจาก /analyze-rights ตอนกดตรวจสอบสิทธิ
+        # ครั้งแรก ไม่รวม "ดูเพิ่มเติม")
         top_result = await session.execute(text('''
             SELECT b."Name_benefit" AS benefit, COUNT(*) AS cnt
             FROM "Benefit_match" bm
             JOIN "Benefits" b ON b."Benefit_id" = bm."Benefit_id"
-            WHERE bm."Status" = \'likely_eligible\'
+            WHERE bm."Status" IN (\'likely_eligible\', \'needs_verification\')
+              AND bm."Source" = \'primary\'
             GROUP BY b."Name_benefit"
             ORDER BY cnt DESC
             LIMIT 5
@@ -652,9 +631,24 @@ async def get_stats() -> dict:
             for row in top_result.fetchall()
         ]
 
+        # หมวดหมู่สิทธิที่ถูกตรวจสอบในส่วนหลัก — เฉพาะ Source='primary'
+        # (มาจาก /analyze-rights ตอนกดตรวจสอบสิทธิ ไม่รวม "ดูเพิ่มเติม")
+        category_result = await session.execute(text('''
+            SELECT b."Category_benefit" AS category, COUNT(*) AS cnt
+            FROM "Benefit_match" bm
+            JOIN "Benefits" b ON b."Benefit_id" = bm."Benefit_id"
+            WHERE bm."Source" = \'primary\'
+            GROUP BY b."Category_benefit"
+            ORDER BY cnt DESC
+        '''))
+        category_breakdown = [
+            {"category": row[0], "count": row[1]}
+            for row in category_result.fetchall()
+        ]
+
     return {
-        "total_inquiries":    total_inquiries,
-        "avg_benefits":       avg_benefits,
-        "avg_ai_response_ms": avg_ai_ms,
-        "top_benefits":       top_benefits,
+        "total_inquiries":     total_inquiries,
+        "avg_ai_response_sec": avg_ai_sec,
+        "top_benefits":        top_benefits,
+        "category_breakdown":  category_breakdown,
     }

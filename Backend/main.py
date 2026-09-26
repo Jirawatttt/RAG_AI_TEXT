@@ -4,6 +4,7 @@ main.py — FastAPI Entry Point
 
 import os
 import time
+import hashlib
 import logging
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -60,13 +61,30 @@ RATE_LIMIT_WINDOW = 60
 # relevant matches, never the whole catalogue.
 RAG_LLM_RESULT_LIMIT = int(os.getenv("RAG_LLM_RESULT_LIMIT", os.getenv("RAG_RESULT_LIMIT", "3")))
 
-# ── /stats/insight cache ──
-# input.html calls this on every page load, unrelated to any one user's
-# analysis, so without a cache it would fire an LLM call per visit. Serving a
-# cached value for INSIGHT_CACHE_SECONDS keeps the total cost independent of
-# how many people open the dashboard.
-_insight_cache: dict = {"insight": None, "expires_at": 0.0}
-INSIGHT_CACHE_SECONDS = int(os.getenv("INSIGHT_CACHE_SECONDS", "900"))
+# ── /suggest-input cache ──
+# AI Input Assistant: keyed by hash(text) — NOT by user/session — so results
+# never cross users on purpose. Two users typing identical text is fine and
+# even intended (same input should get the same suggestion, and sharing the
+# cache entry saves an LLM call); it never mixes one user's data into
+# another's context because the key IS the text, nothing else goes in.
+# Single in-memory dict is fine for one worker (see AI_Input_Assistant_Plan.md
+# §10) — would need a shared store (Redis) if this ever runs multi-worker.
+_suggest_input_cache: dict[str, dict] = {}
+SUGGEST_INPUT_CACHE_SECONDS = int(os.getenv("SUGGEST_INPUT_CACHE_SECONDS", "900"))
+SUGGEST_INPUT_CACHE_MAX_ENTRIES = 500  # cap so distinct inputs can't grow the dict forever
+
+
+def _cache_suggest_input(key: str, result: dict, now: float) -> None:
+    """Store a suggestion result for SUGGEST_INPUT_CACHE_SECONDS, pruning
+    expired entries opportunistically and evicting the oldest-expiring entry
+    if the cache is at capacity."""
+    expired = [k for k, v in _suggest_input_cache.items() if v["expires_at"] <= now]
+    for k in expired:
+        del _suggest_input_cache[k]
+    if len(_suggest_input_cache) >= SUGGEST_INPUT_CACHE_MAX_ENTRIES:
+        oldest_key = min(_suggest_input_cache, key=lambda k: _suggest_input_cache[k]["expires_at"])
+        del _suggest_input_cache[oldest_key]
+    _suggest_input_cache[key] = {"result": result, "expires_at": now + SUGGEST_INPUT_CACHE_SECONDS}
 
 def check_rate_limit(ip: str) -> bool:
     now = time.time()
@@ -118,6 +136,11 @@ class AdditionalBenefitOut(BaseModel):
 
 class MoreRightsRequest(TextAnalysisRequest):
     benefit_slugs: list[str] = Field(min_length=1, max_length=10)
+
+
+class SuggestInputResponse(BaseModel):
+    status: Literal["sufficient", "can_add"]
+    suggestion: str = ""
 
 
 def _extract_benefit_hits(analysis: dict) -> list[tuple[str, str]]:
@@ -258,6 +281,56 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
     return TextAnalysisResponse(**analysis)
 
 
+@app.post("/suggest-input", response_model=SuggestInputResponse, tags=["Rights"])
+async def suggest_input_endpoint(payload: TextAnalysisRequest, request: Request):
+    """AI Input Assistant — runs while the user is still typing, independent
+    of /analyze-rights (does not gate it, does not need it to run first, and
+    does not run after it either). Purely a stateless suggestion layer over
+    Benefits + the user's current text: recommends at most one optional field
+    that would help RAG matching and analyze_rights() status accuracy.
+
+    Never writes to the database — no Inquiry_log/Benefit_match/Ai_response_log
+    rows — this feature is intentionally kept out of analytics entirely (see
+    AI_Input_Assistant_Plan.md §4, §11).
+
+    Cached 15 minutes by hash(text) — see _cache_suggest_input above for why
+    that's safe across concurrent/simultaneous users.
+    """
+    if not check_rate_limit(request.client.host):
+        raise HTTPException(status_code=429, detail="Too many requests")
+
+    text = payload.text.strip()
+    now = time.time()
+    cache_key = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    cached = _suggest_input_cache.get(cache_key)
+    if cached and now < cached["expires_at"]:
+        return cached["result"]
+
+    # Reuses the same scope check as /analyze-rights — text that isn't about
+    # government benefits gets an empty result without spending an LLM call
+    # on suggest_input_fields() at all.
+    in_scope, search_query = await rag.prepare_query(text)
+    if not in_scope:
+        result = {"status": "sufficient", "suggestion": ""}
+        _cache_suggest_input(cache_key, result, now)
+        return result
+
+    try:
+        candidates, _ = await rag.retrieve_for_text(text, search_query=search_query)
+        if not candidates:
+            result = {"status": "sufficient", "suggestion": ""}
+        else:
+            result = await llm.suggest_input_fields(text, candidates[:RAG_LLM_RESULT_LIMIT])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Input suggestion failed")
+        raise HTTPException(status_code=502, detail="ไม่สามารถแนะนำการกรอกข้อมูลได้ในขณะนี้") from exc
+
+    _cache_suggest_input(cache_key, result, now)
+    return result
+
+
 @app.get("/stats", tags=["Analytics"])
 async def get_stats():
     try:
@@ -265,31 +338,3 @@ async def get_stats():
     except Exception as e:
         logger.error(f"Stats failed: {e}")
         raise HTTPException(status_code=500, detail="ไม่สามารถดึงข้อมูลได้")
-
-
-@app.get("/stats/insight", tags=["Analytics"])
-async def get_stats_insight():
-    """AI-generated narrative over already-logged usage data, for the admin
-    dashboard only. Kept as its own endpoint (rather than folded into /stats)
-    so the plain numeric stats stay fast and never depend on the LLM being
-    available; the dashboard calls this separately and can fail silently.
-
-    Cached for INSIGHT_CACHE_SECONDS: this is called on every dashboard page
-    load (not per user analysis), so without a cache the LLM cost would scale
-    with page views instead of with actual usage changes.
-    """
-    now = time.time()
-    if _insight_cache["insight"] is not None and now < _insight_cache["expires_at"]:
-        return {"insight": _insight_cache["insight"]}
-    try:
-        stats = await database.get_stats()
-        recent_summaries = await database.get_recent_summaries()
-        insight = await llm.generate_stats_insight(stats, recent_summaries)
-        _insight_cache["insight"] = insight
-        _insight_cache["expires_at"] = now + INSIGHT_CACHE_SECONDS
-        return {"insight": insight}
-    except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    except Exception as exc:
-        logger.error(f"Stats insight failed: {exc}")
-        raise HTTPException(status_code=500, detail="ไม่สามารถสร้างสรุปเชิงลึกได้")
