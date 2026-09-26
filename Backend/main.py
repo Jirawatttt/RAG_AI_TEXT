@@ -170,7 +170,7 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
 
     started_at = time.time()
     try:
-        candidates = await rag.retrieve_for_text(payload.text, search_query=search_query)
+        candidates, retrieval_quality = await rag.retrieve_for_text(payload.text, search_query=search_query)
         if not candidates:
             return TextAnalysisResponse(**_empty_analysis(
                 "ข้อมูลยังไม่เพียงพอสำหรับค้นหาสิทธิที่เกี่ยวข้อง กรุณาระบุเพิ่ม เช่น สถานะงาน ประกันสังคม รายได้ หรือสัญชาติ"
@@ -187,8 +187,7 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
         raise HTTPException(status_code=502, detail="ไม่สามารถวิเคราะห์ด้วย AI และ RAG ได้ในขณะนี้") from exc
 
     try:
-        analytics_profile = {"text_length": len(payload.text)}
-        inquiry_id = await database.log_inquiry(profile_data=analytics_profile)
+        inquiry_id = await database.log_inquiry(retrieval_quality=retrieval_quality)
         await database.log_benefit_matches(
             hits=_extract_benefit_hits(analysis),
             source="primary",

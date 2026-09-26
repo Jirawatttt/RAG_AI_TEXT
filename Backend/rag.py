@@ -104,7 +104,7 @@ async def retrieve_for_text(
     user_text: str,
     limit: int = DEFAULT_DISCOVERY_RESULT_LIMIT,
     search_query: str | None = None,
-) -> list[Benefit]:
+) -> tuple[list[Benefit], dict]:
     """Retrieve the most relevant catalogue evidence from an unrestricted user query.
 
     This function performs retrieval only.  It never decides eligibility; that
@@ -113,6 +113,12 @@ async def retrieve_for_text(
     search_query: an already-rewritten query (e.g. from prepare_query()) to
     embed directly, skipping a second rewrite_query() call. If omitted, this
     function rewrites the text itself — keeping this callable on its own.
+
+    Returns (benefits, retrieval_quality). retrieval_quality is a plain dict
+    ({"method", "top_score", "scores"}) meant to be logged as-is via
+    database.log_inquiry(retrieval_quality=...) so admins can see the
+    overall match quality of the system over time — it is not used for any
+    decision inside this function itself.
     """
     query = normalize_text(user_text)
     catalogue = await database.load_rag_catalogue()
@@ -150,17 +156,30 @@ async def retrieve_for_text(
     ranked.sort(key=lambda row: row[0], reverse=True)
 
     scope_floor = SCOPE_FLOOR if used_embeddings else SCOPE_FLOOR_KEYWORD
+    method = "embedding" if used_embeddings else "keyword"
+
     if not ranked or ranked[0][0] < scope_floor:
         # Nothing in the catalogue is even close to this input — treat it as
         # out of scope (same outcome as failing is_rights_query) instead of
         # forcing the closest-but-irrelevant items on the LLM. No per-item
         # score is kept beyond this one check.
-        return []
+        quality = {
+            "method": method,
+            "top_score": round(ranked[0][0], 4) if ranked else 0.0,
+            "scores": [],
+        }
+        return [], quality
 
+    top = ranked[:limit]
+    quality = {
+        "method": method,
+        "top_score": round(ranked[0][0], 4),
+        "scores": [round(score, 4) for score, _, _ in top],
+    }
     return [
         _to_benefit(item, documents)
-        for _, item, documents in ranked[:limit]
-    ]
+        for _, item, documents in top
+    ], quality
 
 
 def _to_benefit(item, documents) -> Benefit:
