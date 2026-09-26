@@ -3,6 +3,7 @@
    ============================================================= */
 
 /* ── Variables ─────────────────────────────────────────────── */
+/* สีหลักของธีม (โทนกรมท่า+ทอง) ใช้ผ่าน var(--xxx) ในทุกไฟล์ CSS/inline style ของเว็บ */
 :root {
   --navy:       #1B3A6B;
   --navy-dark:  #122952;
@@ -18,6 +19,7 @@
 }
 
 /* ── Reset & Base ───────────────────────────────────────────── */
+/* box-sizing มาตรฐาน + ฟอนต์/สีพื้นหลังพื้นฐานของทุกหน้า */
 * { box-sizing: border-box; }
 
 body {
@@ -30,6 +32,7 @@ body {
 }
 
 /* ── Header ─────────────────────────────────────────────────── */
+/* แถบ header สีกรมท่าแบบ sticky ด้านบนของทุกหน้า มีเส้นสีทองคาดบน */
 .app-header {
   background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 60%, var(--navy-light) 100%);
   padding: 0 28px;
@@ -64,31 +67,8 @@ body {
 
 .header-spacer { width: 44px; }
 
-/* ── Logo / Back button ─────────────────────────────────────── */
-.logo-circle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.12);
-  border: 1.5px solid rgba(200,168,75,0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--gold-light);
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: background 0.2s, box-shadow 0.2s;
-  letter-spacing: 0.03em;
-  text-decoration: none;
-}
-.logo-circle:hover {
-  background: rgba(255,255,255,0.2);
-  box-shadow: 0 0 0 2px rgba(200,168,75,0.4);
-}
-
 /* ── Buttons ────────────────────────────────────────────────── */
+/* ปุ่มมาตรฐาน 2 แบบ: primary (สีเข้มเน้นการกระทำหลัก) และ secondary (ขอบบาง ใช้รอง) */
 .btn-action {
   border: none;
   border-radius: 8px;
@@ -125,6 +105,7 @@ body {
 }
 
 /* ── Section title (used on input & result) ─────────────────── */
+/* หัวข้อย่อยตัวพิมพ์ใหญ่พร้อมขีดสีทองด้านหน้า ใช้คั่นแต่ละส่วนของเนื้อหา */
 .section-title {
   font-size: 0.75rem;
   font-weight: 700;
@@ -148,6 +129,7 @@ body {
 }
 
 /* ── Footer actions bar ─────────────────────────────────────── */
+/* แถบปุ่มล่างสุดของหน้า (input.html / result.html) ติดกับขอบล่างพร้อมเงาบางๆ */
 .footer-actions {
   border-top: 1px solid var(--border);
   padding: 18px 32px;

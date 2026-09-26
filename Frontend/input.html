@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Smart Rights Viewer</title>
   <link rel="icon" type="image/png" href="logo.png" />
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
   <style>
+    /* กล่องเนื้อหาหลักของหน้า จำกัดความกว้างสูงสุดและจัดกึ่งกลางจอ */
     .content-area {
       flex: 1;
       padding: 28px 32px 36px;
@@ -18,6 +18,7 @@
     }
 
     /* ── Progress Steps ─────────────────────────────────────── */
+    /* แถบแสดงขั้นตอนด้านบน (เริ่มต้น/กรอกข้อมูล/ดูผลลัพธ์) มี 3 สถานะ: ปกติ, active (ขั้นปัจจุบัน), done (ผ่านแล้ว) */
     .progress-steps {
       display: flex;
       align-items: center;
@@ -76,6 +77,7 @@
     }
 
     /* ── Form ───────────────────────────────────────────────── */
+    /* สไตล์ label, input, textarea ของฟอร์มกรอกข้อมูล รวมสถานะ focus / filled / invalid */
     .form-label-th {
       font-size: 0.85rem;
       color: var(--text-sub);
@@ -111,13 +113,6 @@
       resize: vertical;
       line-height: 1.65;
     }
-    .input-hint {
-      margin-top: 9px;
-      font-size: 0.82rem;
-      color: var(--text-muted);
-      line-height: 1.55;
-    }
-
     .form-control.filled {
       border-color: #1D9E75;
       background: #F6FDF9;
@@ -135,7 +130,30 @@
     }
     .error-msg.show { display: block; }
 
-    /* header logo */
+    /* ── AI Input Assistant suggestion ── */
+    /* กล่องคำแนะนำ (ไอคอนหลอดไฟ) ที่โผล่มาเมื่อ AI แนะนำให้เติมข้อมูลเพิ่ม ซ่อนอยู่จนกว่าจะเติม class .show */
+    .input-suggestion {
+      display: none;
+      margin-top: 12px;
+      padding: 12px 14px 12px 34px;
+      background: #F4F8FF;
+      border: 1px solid rgba(35,80,160,0.25);
+      border-radius: 8px;
+      font-size: 0.85rem;
+      color: var(--text-sub);
+      line-height: 1.6;
+      position: relative;
+    }
+    .input-suggestion.show { display: block; }
+    .input-suggestion::before {
+      content: '💡';
+      position: absolute;
+      left: 12px;
+      top: 11px;
+      font-size: 0.9rem;
+    }
+
+    /* โลโก้ในแถบ header สีขาว (invert ไอคอนให้เข้ากับพื้นหลังสีกรมท่า) */
     .header-logo {
       width: 36px; height: 36px;
       object-fit: contain;
@@ -143,6 +161,7 @@
     }
 
     /* ── Dashboard ───────────────────────────────────────────── */
+    /* กรอบส่วนแดชบอร์ดสถิติด้านล่างฟอร์ม (การ์ดตัวเลข + กราฟแท่ง + กราฟวงกลม) */
     .dashboard-section {
       margin-top: 36px;
       padding-top: 28px;
@@ -198,7 +217,7 @@
       margin-top: 4px;
       line-height: 1.4;
     }
-    /* shimmer skeleton */
+    /* กล่อง placeholder สีเทาวิ่งไล่แสง (shimmer) แสดงระหว่างรอโหลดข้อมูลกราฟ */
     .dash-skeleton {
       height: 180px;
       background: linear-gradient(90deg, #EEF1F6 25%, #E4E9F2 50%, #EEF1F6 75%);
@@ -209,13 +228,6 @@
     @keyframes shimmer {
       0%  { background-position: 200% 0; }
       100%{ background-position: -200% 0; }
-    }
-
-    .insight-text {
-      font-size: 0.88rem;
-      color: var(--text-sub);
-      line-height: 1.75;
-      margin: 0;
     }
 
     @media (max-width: 576px) {
@@ -256,14 +268,17 @@
       </div>
     </div>
 
+    <!-- ช่องกรอกข้อความหลัก: ทุกครั้งที่พิมพ์จะเรียก markFilled (เช็ค valid) และ scheduleInputSuggestion (ขอคำแนะนำจาก AI) -->
     <div class="section-title">เล่าข้อมูลของคุณ</div>
     <label class="form-label-th" for="inp-profile-text">พิมพ์ข้อมูลที่ต้องการให้ระบบตรวจสอบ</label>
     <textarea id="inp-profile-text" class="form-control profile-textarea"
       placeholder="ตัวอย่าง: อายุ 65 ปี สัญชาติไทย ไม่มีงานทำ ไม่มีประกันสังคม มีบัตรผู้พิการ และมีบุตรอายุ 4 ปี"
-      oninput="markFilled(this)"></textarea>
+      oninput="markFilled(this); scheduleInputSuggestion(this)"></textarea>
     <div class="error-msg" id="err-profile-text">กรุณาพิมพ์ข้อมูลอย่างน้อย 1 อย่าง</div>
+    <div class="input-suggestion" id="input-suggestion"></div>
 
     <!-- ── Dashboard Section ── -->
+    <!-- แดชบอร์ดสถิติ: ตัวเลขและกราฟถูกเติมด้วย JS (loadDashboard ใน input.js) หลังหน้าโหลดเสร็จ -->
     <div class="dashboard-section" id="dashboard-section">
       <div class="section-title">สถิติการใช้งานระบบ</div>
       <div class="dashboard-grid">
@@ -277,27 +292,26 @@
               <div class="stat-box-label">การตรวจสอบ<br>ทั้งหมด</div>
             </div>
             <div class="stat-box">
-              <div class="stat-box-value" id="stat-avg">—</div>
-              <div class="stat-box-label">สิทธิที่ตรวจพบต่อครั้ง<br>ต่อคน</div>
-            </div>
-            <div class="stat-box">
               <div class="stat-box-value" id="stat-ai">—</div>
-              <div class="stat-box-label">เวลา AI<br>เฉลี่ย (ms)</div>
+              <div class="stat-box-label">เวลา AI<br>เฉลี่ย (วินาที)</div>
             </div>
           </div>
         </div>
 
-        <!-- Bar chart -->
+        <!-- Pie chart: benefit categories checked in the main flow -->
         <div class="dash-card">
+          <div class="dash-card-title">หมวดหมู่สิทธิที่ถูกตรวจสอบ</div>
+          <div id="chart-skeleton-cat" class="dash-skeleton" style="height:220px;"></div>
+          <div style="display:flex; justify-content:center;">
+            <canvas id="categoryChart" style="display:none; max-height:220px;"></canvas>
+          </div>
+        </div>
+
+        <!-- Bar chart -->
+        <div class="dash-card" style="grid-column: 1 / -1;">
           <div class="dash-card-title">ผลประเมินเบื้องต้น</div>
           <div id="chart-skeleton" class="dash-skeleton"></div>
           <canvas id="benefitChart" style="display:none; max-height:180px;"></canvas>
-        </div>
-
-        <!-- AI-generated insight over usage data -->
-        <div class="dash-card" style="grid-column: 1 / -1;">
-          <div class="dash-card-title">สรุปเชิงลึกจาก AI</div>
-          <p id="stat-insight" class="insight-text">กำลังวิเคราะห์แนวโน้มการใช้งาน...</p>
         </div>
 
       </div>
@@ -305,7 +319,7 @@
 
   </div><!-- /.content-area -->
 
-  <!-- Footer actions -->
+  <!-- Footer actions: ปุ่ม "ตรวจสอบสิทธิ" ส่งข้อความไปวิเคราะห์ (submitForm), ปุ่ม "ล้างข้อมูล" เคลียร์ฟอร์ม (clearForm) -->
   <div class="footer-actions">
     <button class="btn-action primary flex-fill" onclick="submitForm()">ตรวจสอบสิทธิ</button>
     <button class="btn-action secondary" onclick="clearForm()">ล้างข้อมูล</button>

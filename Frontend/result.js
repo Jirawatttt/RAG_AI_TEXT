@@ -6,17 +6,20 @@
 
 let currentBenefits = [];
 
+// ป้องกัน XSS: แปลงอักขระพิเศษ (& < > ' ") ในข้อความก่อนแทรกลงใน innerHTML
 function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>'"]/g, char => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
   }[char]));
 }
 
+// เปิด/ปิดปุ่ม "คัดลอกผลลัพธ์" ตามสถานะการโหลด (ปิดระหว่างรอผล, เปิดเมื่อมีผลแล้ว)
 function setResultActionsDisabled(disabled) {
   const copyButton = document.getElementById("copy-btn");
   if (copyButton) copyButton.disabled = disabled;
 }
 
+// แสดง UI สถานะ "กำลังวิเคราะห์" (loading skeleton) ระหว่างรอ API ตอบกลับ
 function renderAnalysisLoading() {
   const container = document.getElementById("result-content");
   if (!container) return;
@@ -30,15 +33,19 @@ function renderAnalysisLoading() {
     </section>`;
 }
 
+// ฟังก์ชันหลัก: รับ object analysis จาก API แล้วสร้าง HTML การ์ดผลลัพธ์ทั้งหมด
+// (จัดกลุ่มตามสถานะสิทธิ, แสดงแหล่งอ้างอิง, คำถามเพิ่มเติม, สิทธิที่เกี่ยวข้อง)
 function renderAnalysis(analysis) {
   const container = document.getElementById("result-content");
   if (!container) return;
   setResultActionsDisabled(false);
+  // ป้ายชื่อสถานะสิทธิ 3 แบบ เอาไว้แสดงบนการ์ด
   const labels = {
     likely_eligible: "อาจมีสิทธิ",
     needs_verification: "อาจมีสิทธิ แต่ต้องตรวจสอบเพิ่ม",
     not_eligible: "ยังไม่น่ามีสิทธิจากข้อมูลที่ระบุ",
   };
+  // เรียงลำดับการ์ดตามความสำคัญของสถานะ แล้วสร้าง HTML การ์ดของแต่ละสิทธิในกลุ่มนั้น
   const grouped = ["likely_eligible", "needs_verification", "not_eligible"];
   const cards = grouped.flatMap(status => (analysis.benefits || [])
     .filter(item => item.status === status)
@@ -60,16 +67,20 @@ function renderAnalysis(analysis) {
       }).join("");
       return `<article class="rag-card status-${status}"><div class="rag-card-top"><p>${labels[status]}</p></div><h3>${escapeHtml(item.name)}</h3><div class="rag-answer"><div class="rag-answer-label">สรุปสำหรับคุณ</div><p>${escapeHtml(item.explanation)}</p></div>${benefitInfo}${missing}</article>`;
     }));
+  // ส่วนคำถามเพิ่มเติมที่ AI แนะนำให้ผู้ใช้ตอบ เพื่อวิเคราะห์ได้แม่นยำขึ้น
   const questions = (analysis.follow_up_questions || []).length
     ? `<section class="rag-card"><h3>คำถามเพื่อให้วิเคราะห์ได้แม่นยำขึ้น</h3><ul>${analysis.follow_up_questions.map(value => `<li>${escapeHtml(value)}</li>`).join("")}</ul></section>`
     : "";
+  // ส่วนแจ้งเตือนสิทธิที่อาจเกี่ยวข้องเพิ่มเติม พร้อมปุ่มให้กดโหลดรายละเอียดเพิ่ม
   const additional = (analysis.additional_benefits || []).length
     ? `<section class="more-rights"><h3>สิทธิที่อาจเกี่ยวข้องเพิ่มเติม (${analysis.additional_benefits.length})</h3><p>พบรายการเพิ่มเติม คุณสามารถให้ AI สรุปรายละเอียดในรูปแบบเดียวกับผลหลักได้</p><button class="icon-btn" id="more-rights-btn" onclick="loadAdditionalRights()">ดูรายการเพิ่มเติม</button></section>`
     : "";
 
+  // เก็บรายการสิทธิไว้ในตัวแปร global เพื่อใช้ตอนกด "คัดลอกผลลัพธ์"
   currentBenefits = analysis.benefits || [];
   container.innerHTML = `<section class="rag-hero"><div class="rag-kicker">AI + RAG ANALYSIS</div><h2>ผลวิเคราะห์สิทธิประโยชน์เบื้องต้น</h2><p>${escapeHtml(analysis.summary || "")}</p></section>${cards.join("") || '<div class="no-result-box"><p class="no-result-heading">โปรดตรวจสอบคำถามของคุณ</p></div>'}${additional}${questions}`;
 
+  // อัปเดตข้อความ disclaimer ท้ายหน้า ถ้า API แจ้ง coverage_warning มาด้วยก็ต่อท้ายข้อความเดิม
   const disclaimerEl = document.getElementById("disclaimer-text");
   if (disclaimerEl) {
     if (!disclaimerEl.dataset.baseText) {
@@ -82,6 +93,8 @@ function renderAnalysis(analysis) {
 }
 
 /* ── เรียก /analyze-rights ด้วยข้อความที่กำหนด (ใช้ทั้งตอนโหลดครั้งแรกและตอนส่งข้อมูลเพิ่มเติม) ── */
+// เรียก API /analyze-rights ด้วยข้อความของผู้ใช้ (มี timeout 60 วิ), เก็บผลลง sessionStorage แล้ว return
+// ใช้ทั้งตอนโหลดครั้งแรกและ (ผ่าน result เดิม) เป็นฐานให้ loadAdditionalRights ต่อยอด
 async function runAnalysis(text) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), 60000);
@@ -107,6 +120,8 @@ async function runAnalysis(text) {
   }
 }
 
+// เรียก API /analyze-more-rights เพื่อวิเคราะห์สิทธิที่เหลือ แล้วผนวกผลเข้ากับ analysis เดิม
+// ก่อนสั่ง render ใหม่ทั้งหมด
 async function loadAdditionalRights() {
   const analysis = JSON.parse(sessionStorage.getItem("analysis") || "null");
   const text = sessionStorage.getItem("userProfileText") || "";
@@ -140,6 +155,8 @@ async function loadAdditionalRights() {
   }
 }
 
+// จัดการ flow วิเคราะห์ข้อความครั้งแรก: แสดง loading -> เรียก runAnalysis -> render ผล
+// ถ้าพลาดจะแสดงกล่อง error แทน
 async function loadTextAnalysis() {
   const text = sessionStorage.getItem("userProfileText") || "";
   const container = document.getElementById("result-content");
@@ -164,6 +181,8 @@ async function loadTextAnalysis() {
 }
 
 /* ── หน้า load: ตรวจ session แล้วเลือก flow ที่เหมาะสม ── */
+// ตอนโหลดหน้า: ถ้ามีผลวิเคราะห์เก็บไว้ใน session ให้แสดงเลย (ไม่ยิง API ซ้ำ)
+// ถ้าไม่มีข้อความผู้ใช้เลยให้เด้งกลับไปหน้ากรอกข้อมูล ไม่งั้นเริ่มวิเคราะห์ใหม่
 window.addEventListener("DOMContentLoaded", () => {
   const raw = sessionStorage.getItem("analysis");
   if (raw) {
@@ -186,6 +205,8 @@ window.addEventListener("DOMContentLoaded", () => {
 });
 
 /* ── คัดลอกผลลัพธ์เป็นข้อความ ── */
+// แปลงรายการสิทธิ (currentBenefits) เป็นข้อความล้วน แล้วคัดลอกเข้าคลิปบอร์ด
+// พร้อมเปลี่ยนข้อความปุ่มชั่วคราวเป็น "คัดลอกแล้ว"
 function copyResults() {
   if (currentBenefits.length === 0) return;
   let text = `ผลการวิเคราะห์สิทธิประโยชน์ภาครัฐเบื้องต้น\nพบรายการ ${currentBenefits.length} รายการ\n${"=".repeat(40)}\n\n`;
