@@ -8,6 +8,11 @@ from datetime import datetime, timezone
 
 _SEED_CHECKED_AT = datetime(2026, 6, 25, tzinfo=timezone.utc)
 
+# โครงสร้างแต่ละ entry: slug/name/category/docs/contact/link/short_description/
+# benefit_details/disqualifying_conditions/documents(list ของ {title, content, checked_at})
+# ทุก entry มีคีย์ครบตามโครงนี้เหมือนกันหมด (สม่ำเสมอ)
+# หมายเหตุ: "category" ไม่ถูกอ่านใน rag.py/models.py เลย — ถ้า database.py หรือ
+# ที่อื่นไม่ได้ใช้ field นี้ด้วย ก็เป็นตัวเลือกที่ลบทิ้งได้ (ไม่ยืนยันเพราะไม่มีไฟล์ database.py ให้ตรวจ)
 BENEFIT_CATALOG = [
     {
         "slug": "elderly_allowance",

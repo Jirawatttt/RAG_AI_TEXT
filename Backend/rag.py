@@ -42,6 +42,8 @@ _RIGHTS_TERMS = {
 }
 
 
+# แตกข้อความเป็นชุดคำ (tokens) เพื่อใช้เทียบกับ document ตอน fallback แบบ keyword
+# ถ้าคำในกลุ่ม _RIGHTS_TERMS ปรากฏอยู่ในข้อความ (แม้ไม่มีเว้นวรรค) จะถูกดึงมาด้วยเสมอ
 def _tokens(text: str) -> set[str]:
     normalized = normalize_text(text)
     tokens = set(re.findall(r"[\wก-๙]+", normalized))
@@ -51,6 +53,8 @@ def _tokens(text: str) -> set[str]:
     return tokens
 
 
+# ทำความสะอาดข้อความเบื้องต้น: ยุบช่องว่างซ้ำ, แปลงเป็นตัวพิมพ์เล็ก,
+# และแทรกช่องว่างคั่นระหว่างตัวเลขกับตัวอักษรไทยที่ติดกัน
 def normalize_text(text: str) -> str:
     """Normalize user text without removing any original meaning."""
     normalized = re.sub(r"\s+", " ", text.strip().lower())
@@ -58,17 +62,23 @@ def normalize_text(text: str) -> str:
     return normalized
 
 
+# คะแนนความคล้ายแบบ keyword: สัดส่วนคำใน query ที่เจอใน text (0-1)
+# ใช้เป็น fallback เวลา embedding ใช้งานไม่ได้เท่านั้น
 def _keyword_score(query: str, text: str) -> float:
     query_tokens, document_tokens = _tokens(query), _tokens(text)
     return len(query_tokens & document_tokens) / len(query_tokens) if query_tokens else 0.0
 
 
+# เช็คง่ายๆ ว่าข้อความมีคำในโดเมนสิทธิสวัสดิการหรือไม่ (true/false)
+# ใช้เป็นด่านกรองเบื้องต้นก่อนเรียก LLM และเป็น fallback ถ้า prepare_query() ล้มเหลว
 def is_rights_query(text: str) -> bool:
     """Reject obviously out-of-scope requests before retrieval and LLM use."""
     normalized = normalize_text(text)
     return any(term in normalized for term in _RIGHTS_TERMS)
 
 
+# ให้ LLM ตัดสินในครั้งเดียวว่า query อยู่ในสโคปหรือไม่ พร้อม rewrite query ไปด้วย
+# ถ้าเรียก LLM ไม่สำเร็จ จะ fallback ไปใช้ is_rights_query() + normalize_text() แทน
 async def prepare_query(text: str) -> tuple[bool, str]:
     """Scope gate + query rewrite in a single LLM round trip.
 
@@ -93,6 +103,7 @@ async def prepare_query(text: str) -> tuple[bool, str]:
         return is_rights_query(text), normalized
 
 
+# คำนวณ cosine similarity ระหว่างเวกเตอร์ 2 ตัว คืนค่า 0.0 ถ้าเวกเตอร์ว่าง/ขนาดไม่ตรงกัน
 def _cosine(left: list[float], right: list[float]) -> float:
     if not left or not right or len(left) != len(right):
         return 0.0
@@ -132,6 +143,9 @@ async def retrieve_for_text(
         # never make retrieval worse than embedding the raw text directly.
         embed_query = search_query if search_query is not None else await llm.rewrite_query(query)
         query_embedding = await llm.embed_text(embed_query)
+        # วนทุก benefit ในแคตตาล็อก: เทียบ query กับ document ย่อยแต่ละอัน,
+        # เก็บ embedding ที่ยังไม่มีไว้ในฐานข้อมูล (cache), แล้วเลือกมาแค่ 2
+        # เอกสารที่คะแนนสูงสุดต่อ benefit ไว้เป็นหลักฐาน
         for item in catalogue:
             scored_documents = []
             for document in item.documents:
@@ -147,6 +161,7 @@ async def retrieve_for_text(
     except Exception:
         # A lexical fallback keeps retrieval available while embeddings are
         # temporarily unavailable; it is retrieval only, never eligibility logic.
+        # ทำหน้าที่เดียวกับด้านบนแต่ใช้ _keyword_score() แทน cosine similarity
         used_embeddings = False
         for item in catalogue:
             documents = list(item.documents)[:2]
@@ -163,6 +178,8 @@ async def retrieve_for_text(
         # out of scope (same outcome as failing is_rights_query) instead of
         # forcing the closest-but-irrelevant items on the LLM. No per-item
         # score is kept beyond this one check.
+        # เช็คแค่คะแนนสูงสุดตัวเดียวของทั้งแคตตาล็อก ถ้ายังต่ำกว่า floor
+        # แปลว่า input หลุดสโคป จึงคืนลิสต์ว่างแทนที่จะส่งของที่ไม่เกี่ยวไปให้ LLM
         quality = {
             "method": method,
             "top_score": round(ranked[0][0], 4) if ranked else 0.0,
@@ -170,6 +187,7 @@ async def retrieve_for_text(
         }
         return [], quality
 
+    # ผ่าน scope floor แล้ว: ตัดมาแค่ limit อันดับแรก แล้วแปลงเป็น Benefit ให้ LLM ใช้ต่อ
     top = ranked[:limit]
     quality = {
         "method": method,
@@ -201,6 +219,7 @@ def _to_benefit(item, documents) -> Benefit:
     )
 
 
+# ดึง benefit ตรงๆ ด้วย slug โดยไม่ผ่านการจัดอันดับ (ไม่เรียก embedding/LLM ซ้ำ)
 async def lookup_benefits_by_slugs(slugs: list[str]) -> list[Benefit]:
     """Fetch specific benefits by slug for /analyze-more-rights.
 

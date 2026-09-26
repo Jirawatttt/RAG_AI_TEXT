@@ -12,6 +12,8 @@ anywhere — it has been removed. Benefit is now the single model here.
 from dataclasses import dataclass
 
 
+# โครงสร้างข้อมูล benefit หนึ่งรายการที่ส่งให้ LLM ใช้ตัดสิน eligibility
+# ทุก field ถูกใช้งานจริงใน rag.py (_to_benefit) ไม่มี field ที่เหลือค้างจากดีไซน์เก่า
 @dataclass
 class Benefit:
     name: str

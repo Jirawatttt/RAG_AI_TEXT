@@ -75,6 +75,7 @@ let suggestionDebounceTimer = null;
 const SUGGESTION_DEBOUNCE_MS = 1200;
 
 // หน่วงเวลา (debounce) ก่อนยิงขอคำแนะนำ เพื่อไม่ให้ยิง API ทุกตัวอักษรที่พิมพ์
+// ระหว่างรอ (debounce + รอ backend ตอบ) จะโชว์สถานะ "กำลังวิเคราะห์..." ให้ user เห็นว่าระบบกำลังทำงานอยู่
 function scheduleInputSuggestion(el) {
   clearTimeout(suggestionDebounceTimer);
   const text = el.value.trim();
@@ -82,6 +83,7 @@ function scheduleInputSuggestion(el) {
     hideInputSuggestion();
     return;
   }
+  showAnalyzingSuggestion();
   suggestionDebounceTimer = setTimeout(() => fetchInputSuggestion(text), SUGGESTION_DEBOUNCE_MS);
 }
 
@@ -108,20 +110,47 @@ async function fetchInputSuggestion(text) {
   }
 }
 
+// เติมเนื้อหาลงกล่องคำแนะนำ: ไอคอน (emoji หรือ spinner) + ข้อความ
+// ใช้ textContent สำหรับส่วนข้อความเสมอ เพื่อความปลอดภัย (กันข้อความจาก backend มี HTML แฝงมา)
+function setSuggestionBox(iconHTML, text) {
+  const box = document.getElementById("input-suggestion");
+  if (!box) return;
+  box.innerHTML = "";
+  const icon = document.createElement("span");
+  icon.className = "sugg-icon";
+  icon.innerHTML = iconHTML; // ค่านี้เป็นค่าคงที่ที่กำหนดเองในโค้ด ไม่ใช่ข้อมูลจาก backend
+  const txt = document.createElement("span");
+  txt.className = "sugg-text";
+  txt.textContent = text;
+  box.appendChild(icon);
+  box.appendChild(txt);
+  box.classList.add("show");
+}
+
+// แสดงสถานะ "กำลังวิเคราะห์..." พร้อมอนิเมชัน spinner ระหว่างรอ debounce + รอ backend ตอบกลับ
+function showAnalyzingSuggestion() {
+  const box = document.getElementById("input-suggestion");
+  if (!box) return;
+  box.classList.remove("suggestion-mode");
+  box.classList.add("analyzing-mode");
+  setSuggestionBox('<span class="spinner-dot"></span>', "กำลังวิเคราะห์ข้อมูล...");
+}
+
 // แสดงกล่องคำแนะนำ AI Input Assistant พร้อมข้อความที่ backend แนะนำ
 function showInputSuggestion(text) {
   const box = document.getElementById("input-suggestion");
   if (!box) return;
-  box.textContent = text;
-  box.classList.add("show");
+  box.classList.remove("analyzing-mode");
+  box.classList.add("suggestion-mode");
+  setSuggestionBox("💡", text);
 }
 
 // ซ่อนกล่องคำแนะนำและล้างข้อความ
 function hideInputSuggestion() {
   const box = document.getElementById("input-suggestion");
   if (!box) return;
-  box.classList.remove("show");
-  box.textContent = "";
+  box.classList.remove("show", "analyzing-mode", "suggestion-mode");
+  box.innerHTML = "";
 }
 
 /* ── ชื่อย่อสิทธิ ── */

@@ -144,13 +144,50 @@
       line-height: 1.6;
       position: relative;
     }
-    .input-suggestion.show { display: block; }
-    .input-suggestion::before {
-      content: '💡';
-      position: absolute;
-      left: 12px;
-      top: 11px;
+    .input-suggestion.show {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding-left: 14px;
+      animation: sugg-fade-in 0.25s ease;
+    }
+    .input-suggestion .sugg-icon {
+      flex: 0 0 auto;
       font-size: 0.9rem;
+      line-height: 1.5;
+      margin-top: 1px;
+    }
+    .input-suggestion .sugg-text { flex: 1 1 auto; }
+
+    /* สถานะ "กำลังวิเคราะห์..." ระหว่างรอ AI Input Assistant ตอบกลับ */
+    .input-suggestion.analyzing-mode {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+    .spinner-dot {
+      display: inline-block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid rgba(35,80,160,0.2);
+      border-top-color: var(--navy-light, #2350A0);
+      border-radius: 50%;
+      animation: sugg-spin 0.7s linear infinite;
+      vertical-align: -2px;
+    }
+    @keyframes sugg-spin { to { transform: rotate(360deg); } }
+    @keyframes sugg-fade-in {
+      from { opacity: 0; transform: translateY(-3px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ข้อความคำแนะนำถาวรใต้ช่องกรอก บอกวิธีใช้งาน AI Input Assistant */
+    .ai-hint {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
 
     /* โลโก้ในแถบ header สีขาว (invert ไอคอนให้เข้ากับพื้นหลังสีกรมท่า) */
@@ -235,6 +272,19 @@
       .step-line { max-width: 40px; }
       .dashboard-grid { grid-template-columns: 1fr; }
     }
+
+    /* ── Footer actions fix ─────────────────────────────────────
+       จัดปุ่มให้อยู่กึ่งกลางแถบ (เหมือนหน้า result.html ที่ใช้
+       .footer-actions { justify-content: center }) แทนที่จะกองอยู่
+       ชิดซ้ายเหมือนก่อนหน้านี้ ปุ่มเป็นขนาดปกติ ไม่ยืดเต็มความกว้าง ── */
+    .footer-actions {
+      display: flex !important;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      width: 100%;
+      box-sizing: border-box;
+    }
   </style>
 </head>
 <body>
@@ -269,12 +319,13 @@
     </div>
 
     <!-- ช่องกรอกข้อความหลัก: ทุกครั้งที่พิมพ์จะเรียก markFilled (เช็ค valid) และ scheduleInputSuggestion (ขอคำแนะนำจาก AI) -->
-    <div class="section-title">เล่าข้อมูลของคุณ</div>
+    <div class="section-title">ข้อมูลของคุณ</div>
     <label class="form-label-th" for="inp-profile-text">พิมพ์ข้อมูลที่ต้องการให้ระบบตรวจสอบ</label>
     <textarea id="inp-profile-text" class="form-control profile-textarea"
       placeholder="ตัวอย่าง: อายุ 65 ปี สัญชาติไทย ไม่มีงานทำ ไม่มีประกันสังคม มีบัตรผู้พิการ และมีบุตรอายุ 4 ปี"
       oninput="markFilled(this); scheduleInputSuggestion(this)"></textarea>
     <div class="error-msg" id="err-profile-text">กรุณาพิมพ์ข้อมูลอย่างน้อย 1 อย่าง</div>
+    <div class="ai-hint">ผู้ช่วย อัฉริยะ จะช่วยแนะนำข้อมูลเพิ่มเติมให้ท่าน</div>
     <div class="input-suggestion" id="input-suggestion"></div>
 
     <!-- ── Dashboard Section ── -->
@@ -321,7 +372,7 @@
 
   <!-- Footer actions: ปุ่ม "ตรวจสอบสิทธิ" ส่งข้อความไปวิเคราะห์ (submitForm), ปุ่ม "ล้างข้อมูล" เคลียร์ฟอร์ม (clearForm) -->
   <div class="footer-actions">
-    <button class="btn-action primary flex-fill" onclick="submitForm()">ตรวจสอบสิทธิ</button>
+    <button class="btn-action primary" onclick="submitForm()">ตรวจสอบสิทธิ</button>
     <button class="btn-action secondary" onclick="clearForm()">ล้างข้อมูล</button>
   </div>
 

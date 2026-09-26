@@ -16,6 +16,7 @@ EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 client = AsyncOpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 
 
+# เรียก OpenAI chat completion แบบบังคับ JSON output ใช้ร่วมกันทุกฟังก์ชันด้านล่าง
 async def _call_model(model: str, prompt: str) -> str:
     if client is None:
         raise RuntimeError("ไม่พบ OPENAI_API_KEY ใน .env")
@@ -31,6 +32,7 @@ async def _call_model(model: str, prompt: str) -> str:
     return response.choices[0].message.content or ""
 
 
+# แปลงข้อความเป็นเวกเตอร์ embedding เพื่อใช้คำนวณ cosine similarity ใน rag.py
 async def embed_text(text: str) -> list[float]:
     """Create an embedding for a RAG query or document chunk."""
     if client is None:
@@ -39,6 +41,7 @@ async def embed_text(text: str) -> list[float]:
     return response.data[0].embedding
 
 
+# เรียก LLM 1 ครั้ง คืนทั้ง in_scope (อยู่ในโดเมนสิทธิหรือไม่) และ query ที่ rewrite แล้ว
 async def analyze_query(user_text: str) -> dict:
     """One LLM call that both scope-checks the input and distills it into a
     short search query — replaces two separate calls (a scope classifier and
@@ -62,6 +65,7 @@ async def analyze_query(user_text: str) -> dict:
     return json.loads(raw)
 
 
+# ตัดข้อความผู้ใช้ให้เหลือแค่ข้อเท็จจริงเชิงสถานะ ก่อนนำไป embed (ล้มเหลวได้ ไม่ raise)
 async def rewrite_query(user_text: str) -> str:
     """Distill free-form user text into a short, fact-only query before it is
     embedded for retrieval.
@@ -86,6 +90,7 @@ async def rewrite_query(user_text: str) -> str:
         return user_text
 
 
+# แนะนำ field เดียวที่ user ควรเพิ่ม เพื่อช่วยให้จัดสถานะสิทธิได้แม่นขึ้น (ไม่ตัดสินสิทธิ)
 async def suggest_input_fields(user_text: str, benefits: list[Benefit]) -> dict:
     """AI Input Assistant — แนะนำ field เดียวที่ user อาจเพิ่มเพื่อช่วยให้ RAG
     จับคู่สิทธิแม่นขึ้น และช่วยให้ analyze_rights() จัดสถานะ (likely_eligible/
@@ -120,6 +125,13 @@ async def suggest_input_fields(user_text: str, benefits: list[Benefit]) -> dict:
 ทำได้แม่นขึ้น แทนที่จะค้างอยู่ที่ "ข้อมูลไม่พอ"
 
 คำแนะนำของคุณเป็นทางเลือก ไม่ใช่การบังคับ และไม่ใช่การตัดสิน/ยืนยันสิทธิ
+- ห้ามใช้คำสั่ง/คำบังคับเด็ดขาด เช่น "โปรดระบุ", "กรุณากรอก", "ต้องระบุ", "จำเป็นต้องบอก"
+- ให้ใช้โทนชักชวน/เสนอทางเลือกเบาๆ เหมือนเพื่อนแนะนำ ไม่ใช่แบบฟอร์มราชการ
+- เริ่มประโยคด้วยคำทำนองนี้แทน: "ลองเพิ่ม...", "ถ้าสะดวก อาจบอกเพิ่มได้ว่า...","จะช่วยให้แม่นขึ้นถ้าบอกว่า..."
+
+ตัวอย่างที่ไม่ดี (ห้ามใช้):
+- "โปรดระบุสถานะการมีบัตรผู้พิการ"
+- "กรุณากรอกรายได้ต่อเดือน"
 
 ข้อความของผู้ใช้ปัจจุบัน:
 "{user_text}"
@@ -142,6 +154,8 @@ async def suggest_input_fields(user_text: str, benefits: list[Benefit]) -> dict:
     return {"status": status, "suggestion": suggestion}
 
 
+# ใช้เฉพาะหลักฐานที่ RAG คัดมาให้ ตัดสินสถานะสิทธิแต่ละอัน (likely/needs/not_eligible)
+# แล้ว normalize source_ids กลับเป็น sources เต็มรูปแบบ (title/link/slug ฯลฯ)
 async def analyze_rights(user_text: str, benefits: list[Benefit]) -> dict:
     """Use only retrieved catalogue evidence to produce a user-facing analysis."""
     if client is None:
@@ -189,6 +203,8 @@ RAG ได้เปรียบเทียบข้อความผู้ใ�
     raw = await _call_model(MODEL, prompt)
     data = json.loads(raw)
     normalized = []
+    # แปลง source_ids (เช่น "S1") กลับเป็นข้อมูลสิทธิเต็มจาก source_map
+    # ถ้าไม่มี source ที่ map ได้เลย ให้ข้าม item นี้ทิ้ง (กันข้อมูลหลอน/ไม่มีหลักฐาน)
     for item in data.get("benefits", []):
         ids = [source_id for source_id in item.get("source_ids", []) if source_id in source_map]
         sources = [

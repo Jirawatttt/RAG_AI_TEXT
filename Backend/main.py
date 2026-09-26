@@ -25,6 +25,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+# เปิด/ปิด connection ของ database ตามอายุของแอป (ตอน startup/shutdown)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting up — connecting to database...")
@@ -74,6 +75,8 @@ SUGGEST_INPUT_CACHE_SECONDS = int(os.getenv("SUGGEST_INPUT_CACHE_SECONDS", "900"
 SUGGEST_INPUT_CACHE_MAX_ENTRIES = 500  # cap so distinct inputs can't grow the dict forever
 
 
+# เก็บผล suggest-input ไว้ในแคชในหน่วยความจำตาม key (hash ของข้อความ)
+# เคลียร์รายการที่หมดอายุก่อน แล้ว evict รายการเก่าสุดถ้าแคชเต็ม
 def _cache_suggest_input(key: str, result: dict, now: float) -> None:
     """Store a suggestion result for SUGGEST_INPUT_CACHE_SECONDS, pruning
     expired entries opportunistically and evicting the oldest-expiring entry
@@ -86,6 +89,7 @@ def _cache_suggest_input(key: str, result: dict, now: float) -> None:
         del _suggest_input_cache[oldest_key]
     _suggest_input_cache[key] = {"result": result, "expires_at": now + SUGGEST_INPUT_CACHE_SECONDS}
 
+# จำกัดจำนวนคำขอต่อ IP ภายในหน้าต่างเวลา (sliding window ง่ายๆ ใน memory)
 def check_rate_limit(ip: str) -> bool:
     now = time.time()
     _request_counts[ip] = [t for t in _request_counts[ip] if now - t < RATE_LIMIT_WINDOW]
@@ -143,6 +147,7 @@ class SuggestInputResponse(BaseModel):
     suggestion: str = ""
 
 
+# แปลงผลวิเคราะห์ของ LLM เป็นคู่ (slug, status) สำหรับบันทึกลง Benefit_match
 def _extract_benefit_hits(analysis: dict) -> list[tuple[str, str]]:
     """แปลงผลจาก llm.analyze_rights() เป็น (slug, status) สำหรับ log_benefit_matches.
 
@@ -159,6 +164,7 @@ def _extract_benefit_hits(analysis: dict) -> list[tuple[str, str]]:
     return hits
 
 
+# สร้างผลลัพธ์ว่างแบบปลอดภัย เมื่อ input หลุดสโคปหรือ RAG หาอะไรไม่เจอ (ไม่เรียก LLM)
 def _empty_analysis(summary: str) -> dict:
     """Return a safe no-match result without invoking the LLM."""
     return {
@@ -177,6 +183,7 @@ async def health_check():
     return {"status": "ok", "version": app.version}
 
 
+# flow หลัก: scope check -> RAG ค้นสิทธิ -> ให้ LLM วิเคราะห์ -> log ผลทั้งหมดลง DB
 @app.post("/analyze-rights", response_model=TextAnalysisResponse, tags=["Rights"])
 async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request):
     """AI-first rights analysis from free text and retrieved catalogue evidence."""
@@ -227,6 +234,7 @@ async def analyze_rights_endpoint(payload: TextAnalysisRequest, request: Request
     return TextAnalysisResponse(**analysis)
 
 
+# กด "ดูเพิ่มเติม": ดึงสิทธิที่ถูกจัดอันดับไว้แล้วตรงๆ ด้วย slug (ไม่ embed/ไม่ scope-check ซ้ำ)
 @app.post("/analyze-more-rights", response_model=TextAnalysisResponse, tags=["Rights"])
 async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Request):
     """Explain deferred benefits the user asked to see, by slug.
@@ -281,6 +289,7 @@ async def analyze_more_rights_endpoint(payload: MoreRightsRequest, request: Requ
     return TextAnalysisResponse(**analysis)
 
 
+# แนะนำ field ที่ควรเพิ่มระหว่าง user พิมพ์ — แยกอิสระจาก /analyze-rights และไม่ log ลง DB
 @app.post("/suggest-input", response_model=SuggestInputResponse, tags=["Rights"])
 async def suggest_input_endpoint(payload: TextAnalysisRequest, request: Request):
     """AI Input Assistant — runs while the user is still typing, independent
@@ -331,6 +340,7 @@ async def suggest_input_endpoint(payload: TextAnalysisRequest, request: Request)
     return result
 
 
+# ดึงสถิติสรุปทั้งหมดจาก database.get_stats() สำหรับหน้า analytics/นำเสนอ
 @app.get("/stats", tags=["Analytics"])
 async def get_stats():
     try:

@@ -45,6 +45,8 @@ class Base(DeclarativeBase):
     pass
 
 
+# ตาราง log 1 แถวต่อ 1 ครั้งที่ user กด /analyze-rights (ไม่เก็บ PII)
+# ใช้ Retrieval_quality เก็บผลจัดอันดับของ rag.py ไว้ดูคุณภาพ RAG ย้อนหลัง
 class InquiryLog(Base):
     """
     บันทึกทุกครั้งที่มีการตรวจสอบสิทธิ (1 แถว = 1 ครั้งที่กด /analyze-rights)
@@ -66,6 +68,8 @@ class InquiryLog(Base):
     )
 
 
+# ตาราง log 1 แถวต่อ 1 สิทธิที่ AI ประเมินให้ user ในแต่ละครั้ง
+# Source แยกว่ามาจาก flow หลัก (primary) หรือกด "ดูเพิ่มเติม" (additional)
 class BenefitMatch(Base):
     """
     บันทึก 1 แถวต่อ 1 สิทธิที่ AI ประเมินให้ user ในแต่ละครั้ง 
@@ -82,6 +86,7 @@ class BenefitMatch(Base):
     Source     = Column(String(20), nullable=False, default="primary")  # primary / additional
 
 
+# ตาราง log คำตอบดิบของ LLM ทุกครั้งที่เรียก ใช้ดู cost/latency และ debug prompt
 class AIResponseLog(Base):
     """
     บันทึก AI response ทุกครั้งที่เรียก LLM เพื่อสรุปคำตอบให้ user
@@ -99,6 +104,8 @@ class AIResponseLog(Base):
 # ── RAG knowledge base ──────────────────────────────────────────────────
 # These records are the editable source of truth for benefits and retrieved
 # evidence.  The initial catalogue is inserted only when empty.
+# ตารางหลักของสิทธิ 1 แถวต่อ 1 สิทธิ — เป็น source of truth ที่แอดมินแก้ตรงๆ ได้
+# Category_benefit ถูกใช้จริงใน get_stats() (category_breakdown สำหรับ chart วงกลม)
 class BenefitRecord(Base):
     __tablename__ = "Benefits"
 
@@ -117,6 +124,8 @@ class BenefitRecord(Base):
     Active = Column(Boolean, nullable=False, default=True)
 
 
+# เอกสารหลักฐานย่อย (chunk) ของแต่ละสิทธิ ใช้เก็บ content + embedding สำหรับ RAG
+# Vector_benefit เป็น NULL ได้เสมอ เพราะ trigger ด้านล่างจะเคลียร์ให้เมื่อ content เปลี่ยน
 class BenefitDocument(Base):
     __tablename__ = "Benefit_embeddings"
 
@@ -127,6 +136,9 @@ class BenefitDocument(Base):
     Vector_benefit = Column(JSONB, nullable=True)
 
 
+# read model แบบเบาๆ ที่ rag.py ใช้แทนการยุ่งกับ ORM object ตรงๆ
+# หมายเหตุ: ตัดแอตทริบิวต์ checked_at ออกแล้ว เพราะไม่มีจุดไหนอ่านค่านี้เลย
+# (rag._to_benefit() ไม่ได้ดึงไปใช้ และ Benefit dataclass ก็ไม่มี field นี้)
 class CatalogueItem:
     """Lightweight read model used by rag.py; keeps ORM details out of routes."""
     def __init__(self, record, documents):
@@ -137,7 +149,6 @@ class CatalogueItem:
         self.short_description = record.Short_description
         self.benefit_details = record.Benefit_details
         self.disqualifying_conditions = record.Disqualifying_conditions
-        self.checked_at = record.Checked_at
         self.documents = documents
 
 
@@ -145,6 +156,8 @@ class CatalogueItem:
 # Lifecycle — เรียกจาก main.py lifespan
 # ---------------------------------------------------------------------------
 
+# จุดเริ่มระบบ: สร้าง/migrate ตารางให้ตรงกับ ORM model ด้านบนทั้งหมด แล้วค่อย seed
+# ข้อมูลตั้งต้น — ต้อง rename table/column เก่าก่อน create_all เสมอ (ดูคอมเมนต์ในฟังก์ชัน)
 async def connect():
     """สร้างตารางถ้ายังไม่มี (CREATE TABLE IF NOT EXISTS)"""
     async with engine.begin() as conn:
@@ -325,6 +338,8 @@ async def disconnect():
     logger.info("Database disconnected")
 
 
+# ใส่ข้อมูลตั้งต้นจาก rag_catalog.py ลง DB "ครั้งเดียว" ตอนตาราง Benefits ว่างเปล่า
+# ถ้ามีข้อมูลอยู่แล้ว (แอดมินเคยแก้ผ่าน DB) จะไม่ยุ่ง/ไม่ overwrite เลย
 async def seed_rag_catalogue() -> None:
     """Create initial RAG data once; existing DB edits are never overwritten."""
     from rag_catalog import BENEFIT_CATALOG
@@ -371,6 +386,8 @@ async def seed_rag_catalogue() -> None:
         logger.info("✅ RAG catalogue seeded")
 
 
+# เติมข้อความอธิบาย (short_description/benefit_details/disqualifying_conditions)
+# เฉพาะแถวที่ยังว่างอยู่เท่านั้น — ไม่แตะแถวที่แอดมินแก้ไว้แล้ว
 async def seed_benefit_explanations() -> None:
     """Fill blank LLM-only context from the catalogue without overwriting edits."""
     from rag_catalog import BENEFIT_CATALOG
@@ -396,6 +413,7 @@ async def seed_benefit_explanations() -> None:
         await session.commit()
 
 
+# โหลดสิทธิที่ Active=True ทั้งหมดพร้อม document ของแต่ละสิทธิ ให้ rag.py จัดอันดับต่อ
 async def load_rag_catalogue() -> list[CatalogueItem]:
     async with AsyncSessionLocal() as session:
         records = (await session.execute(
@@ -442,6 +460,8 @@ async def get_benefits_by_slugs(slugs: list[str]) -> list[CatalogueItem]:
     ]
 
 
+# แคช embedding ของ document ไว้ในคอลัมน์ Vector_benefit เพื่อไม่ต้อง embed ซ้ำทุกครั้ง
+# เซ็ตเฉพาะตอนที่ยังเป็น NULL เท่านั้น (trigger ด้านบนจะเคลียร์กลับเป็น NULL เองเมื่อ content เปลี่ยน)
 async def save_document_embedding(document_id: int, embedding: list[float]) -> None:
     async with AsyncSessionLocal() as session:
         document = await session.get(BenefitDocument, document_id)
@@ -450,6 +470,8 @@ async def save_document_embedding(document_id: int, embedding: list[float]) -> N
             await session.commit()
 
 
+# หมายเหตุ: ยังไม่มี endpoint ใน main.py เรียกฟังก์ชันนี้ — เตรียมไว้สำหรับ
+# แผงแอดมินในอนาคตตามที่ docstring ระบุ ไม่ใช่โค้ดที่ตายแล้ว จึงไม่ได้ลบให้
 async def mark_benefit_checked(benefit_id: int, checked_at: datetime | None = None) -> None:
     """Admin action: record that this benefit's content was just verified
     against current government criteria. Does NOT touch any document
@@ -463,6 +485,8 @@ async def mark_benefit_checked(benefit_id: int, checked_at: datetime | None = No
             await session.commit()
 
 
+# หมายเหตุ: ยังไม่มี endpoint ใน main.py เรียกฟังก์ชันนี้เช่นกัน — เตรียมไว้
+# สำหรับรายงานแอดมินตามที่ docstring ระบุ (stale_after_days = เกณฑ์วันที่ถือว่าเก่า)
 async def get_benefits_needing_review(stale_after_days: int = 180) -> list[dict]:
     """List active benefits that either have never been checked
     (`Checked_at IS NULL`, e.g. anything seeded without a real check date)
