@@ -1,5 +1,57 @@
+# ── Environment / Secrets ──────────────────────────────
 .env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Python ──────────────────────────────────────────────
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
 venv/
 .venv/
+env/
+ENV/
+
+# ── Testing / Coverage ──────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Database (ถ้ามีไฟล์ local เช่น sqlite ตอน dev) ──────
+*.sqlite3
+*.db
+/pgdata/
+
+# ── Logs ─────────────────────────────────────────────────
+*.log
+logs/
+
+# ── IDE / Editor ──────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS files ──────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Node (ถ้ามีใช้ npm สำหรับ build เครื่องมือ frontend ในอนาคต) ──
+node_modules/
+package-lock.json
+
+# ── Misc ───────────────────────────────────────────────────
+*.bak
+*.tmp
+.cache/
