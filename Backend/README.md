@@ -16,22 +16,15 @@ Backend สำหรับเว็บแอปวิเคราะห์ **ส
 ---
 ## Flow หลัก (`/analyze-rights`)
 
-```
 ![/analyze-rights](/assets/UML/UML-Activity%20_analyze-rights.png)
-```
-
 รวม 1 รอบ = 2 completions + 1 embedding
 ---
 ## Flow (`/analyze-more-rights`)
-```
 ![/analyze-more-rights](/assets/UML/UML-Activity%20_analyze-more-rights.png)
-```
 **`/analyze-more-rights`**: ดึงสิทธิที่ถูกเลื่อนไว้ตรงๆ ด้วย slug จาก DB (ไม่ embed, ไม่เช็ค scope ซ้ำ) แล้วใช้ logic `llm.analyze_rights` วิเคราะห์อีกรอบเดียว
 ---
 ## Flow (`/suggest-input`)
-```
 ![/suggest-input](/assets/UML/UML-Activity%20_suggest-input.png)
-```
 **`/suggest-input`**: cache ในหน่วยความจำตาม hash(text) (15 นาที) → ถ้าไม่ผ่าน scope หรือไม่มีสิทธิเกี่ยวข้องเลย ตอบ `sufficient`ไม่แสดงแนะนำอะไรให้Userทันที → ถ้ามีใช้ Logic `llm.suggest_input_fields` และเลือกแนะนำUser จาก field เดียวในDatabase (ใช้แค่ short_description/benefit_details ใน Table Benefits เป็น context)
 ---
 
