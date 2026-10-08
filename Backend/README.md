@@ -6,12 +6,11 @@ Backend สำหรับเว็บแอปวิเคราะห์ **ส
 
 > **ผลลัพธ์เป็นข้อมูลคัดกรองเบื้องต้น ไม่ใช่การรับรองสิทธิ หน่วยงานเจ้าของสิทธิเท่านั้นที่ยืนยันผลจริงได้
 ---
-## ความสามารถหลัก
-- รับข้อความภาษาไทยอิสระ 1–4,000 ตัวอักษร (รองรับข้อความติดกันไม่เว้นวรรค)
-- Scope-check ด้วย AI ก่อนเสมอ (มี keyword fallback ถ้า AI ล่ม)
+## การทำงาน
+- รับข้อความภาษาไทยอิสระ 1–4,000 ตัวอักษร
+- ตรวจเช็คขอบเขตด้วย AI
+- AI แนะนำการกรอกข้อมูลเพิ่มเติม
 - คลังความรู้ปัจจุบัน 8 สิทธิ — วิเคราะห์ให้ทันที 3 อันดับแรก ที่เหลือกดดูเพิ่มได้โดยไม่ต้องค้นใหม่
-- แดชบอร์ด กราฟแท่ง+วงกลมจากตัวเลขดิบ จากสถิติการใช้งานในระบบ
-- **AI Input Assistant** แนะนำเพิ่มระหว่างพิมพ์ (debounce 1.2 วิ)
 - จำกัด 20 requests/IP/60 วินาที ทุก endpoint ที่เรียก AI
 ---
 ## Flow หลัก (`/analyze-rights`)
@@ -42,7 +41,7 @@ Backend สำหรับเว็บแอปวิเคราะห์ **ส
 | `not_eligible` | ปฏิเสธเกณฑ์คุณสมบัติชัดเจน |
 
 **ข้อจำกัดสำคัญ**: cosine similarity ไม่เข้าใจการปฏิเสธ — "ไม่ใช่คนไทย" อาจคะแนนใกล้เคียงเอกสารเรื่องสัญชาติพอๆ กับ "เป็นคนไทย" เพราะแชร์คำเดียวกัน การตัดสิน ที่ถูกต้องจึงต้องพึ่ง LLM + เอกสารที่ระบุเงื่อนไขชัดเจนเท่านั้น
-
+---
 ## Logic การตัดสินใจของระบบ
 
 ระบบมี "จุดตัดสินใจ" หลักๆ 4 จุด แต่ละจุดทำหน้าที่เดียวไม่ก้าวก่ายกัน:
@@ -70,19 +69,15 @@ Backend สำหรับเว็บแอปวิเคราะห์ **ส
 - ใช้ context แค่ `short_description`/`benefit_details`
 - แนะนำได้ทีละ 1 field ที่สำคัญที่สุดเท่านั้น ห้ามใช้โทนคำสั่ง/บังคับ
 - ข้อมูลพอแล้ว → ตอบ `sufficient` เฉยๆ ห้ามหาเรื่องแนะนำเพิ่มโดยไม่มีเหตุผล
-
+---
 ## ข้อจำกัดที่ควรรู้
 
-- ยังไม่มีชุดทดสอบที่เฉลยโดยผู้เชี่ยวชาญ — ห้ามอ้างเปอร์เซ็นต์ความแม่นยำ
 - ครอบคลุมเฉพาะ 8 สิทธิในคลัง; เกณฑ์ราชการเปลี่ยนบ่อยต้องทบทวนเป็นระยะ
 - LLM ไม่ deterministic 100% — ข้อความเดียวกันอาจได้คำตอบต่างกันเล็กน้อยคนละรอบ
 - Rate limit และ cache ของ `/suggest-input` อยู่ใน memory — ไม่แชร์ข้าม worker และหายเมื่อ restart
 - ห้ามส่งเลขบัตรประชาชน รหัสผ่าน หรือข้อมูลอ่อนไหวเกินจำเป็น
-
+---
 ## API
-
-Swagger UI: `http://127.0.0.1:8000/docs`
-
 | Endpoint | หน้าที่ |
 | --- | --- |
 | `GET /health` | `{ "status": "ok", "version": "1.0.0" }` |
@@ -98,7 +93,7 @@ Swagger UI: `http://127.0.0.1:8000/docs`
 | `503` | ไม่มี `OPENAI_API_KEY` |
 | `502` | RAG/AI วิเคราะห์ไม่สำเร็จ |
 | `500` | ดึงสถิติไม่สำเร็จ |
-
+---
 ## ฐานข้อมูล
 
 PostgreSQL ผ่าน SQLAlchemy async
@@ -116,7 +111,7 @@ PostgreSQL ผ่าน SQLAlchemy async
 **เขียนคลังความรู้**: เกณฑ์คุณสมบัติทั่วไปเขียนใน `Short_description`/`Benefit_details`/เอกสาร RAG ส่วน**เงื่อนไขตัดสิทธิ**เขียนแยกใน `Disqualifying_conditions` โดยเฉพาะ — ต้องเขียนเงื่อนไขสำคัญ (โดยเฉพาะสัญชาติ) ให้ชัดตรงๆ ไม่งั้น LLM ไม่มีหลักฐานตัดสิน `not_eligible`
 
 Seed ข้อมูลจาก `rag_catalog.py` ทำครั้งเดียวตอน DB ว่าง แก้ไฟล์ทีหลังไม่มีผลกับ DB ที่ seed ไปแล้ว (ยกเว้นแถวที่ยังว่าง จะถูกเติมให้ทุก startup)
-
+---
 ## โครงสร้าง
 
 ```text
@@ -127,15 +122,18 @@ Backend/
 ├── database.py     # models, migration, seed, analytics
 ├── rag_catalog.py  # ข้อมูลเริ่มต้น (seed ครั้งเดียว)
 ├── models.py       # domain model เดียว (Benefit)
-└── run.py          # dev server
+├── run.py          # dev server (ใช้ในเครื่องเท่านั้น)
+├── requirements.txt
+├── Dockerfile      # image สำหรับ deploy บน Render
+└── .dockerignore   # กัน venv / .env เข้า image
 
 Frontend/
-├── home.html / input.html / result.html
+├── index.html / input.html / result.html
 ├── app.js          # API_BASE
 ├── input.js        # submit, dashboard, AI Input Assistant
 └── result.js       # เรียก /analyze-rights, /analyze-more-rights, render ผล
 ```
-
+---
 ## การติดตั้ง
 
 ```sql
@@ -146,16 +144,15 @@ CREATE DATABASE rights_db;
 
 ```env
 DATABASE_URL=postgresql+asyncpg://postgres:YOUR_PASSWORD@localhost:5432/rights_db
-APIKEY=sk-...
-MODEL=...
-EMBEDDING_MODEL=...
+OPENAI_API_KEY=...
+OPENAI_MODEL=...
+OPENAI_EMBEDDING_MODEL=...
 ALLOWED_ORIGINS=http://localhost:5500,http://127.0.0.1:5500
 
 RAG_SCOPE_FLOOR=0.25
 RAG_SCOPE_FLOOR_KEYWORD=0.08
 RAG_DISCOVERY_RESULT_LIMIT=10
 RAG_LLM_RESULT_LIMIT=3
-SUGGEST_INPUT_CACHE_SECONDS=900
 ```
 
 ```powershell
@@ -166,8 +163,8 @@ pip install -r requirements.txt
 python run.py
 ```
 
-เปิด Frontend ผ่าน Live Server → `http://localhost:5500/home.html`
-
+เปิด Frontend ผ่าน Live Server → `http://localhost:5500/index.html` 
+---
 ## แนวทางพัฒนาต่อ
 
 - เปิด endpoint แอดมินให้ `mark_benefit_checked()` / `get_benefits_needing_review()` ใช้งานได้จริง
